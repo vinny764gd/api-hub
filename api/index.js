@@ -5,9 +5,15 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 
-// Middlewares
+// Configurar CORS para aceitar requisições do frontend
 app.use(cors({
-    origin: '*',
+    origin: [
+        'http://localhost:5500',
+        'http://localhost:3000',
+        'http://127.0.0.1:5500',
+        'https://seu-frontend.netlify.app',
+        'https://seu-frontend.vercel.app'
+    ],
     credentials: true
 }));
 app.use(express.json());
@@ -38,13 +44,12 @@ let isConnected = false;
 // Função para conectar ao MongoDB
 async function connectDB() {
     if (isConnected) {
-        console.log('✅ Usando conexão existente');
         return;
     }
     
     if (!MONGODB_URI) {
         console.error('❌ MONGODB_URI não definida');
-        throw new Error('MONGODB_URI não configurada');
+        return;
     }
     
     try {
@@ -57,7 +62,6 @@ async function connectDB() {
         console.log('✅ MongoDB Atlas Conectado');
     } catch (error) {
         console.error('❌ Erro ao conectar:', error.message);
-        throw error;
     }
 }
 
@@ -91,7 +95,7 @@ function authenticate(req, res, next) {
 // ============ ROTAS DA API ============
 
 // Health check
-app.get('/api/health', async (req, res) => {
+app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         message: 'API funcionando!',
@@ -105,15 +109,10 @@ app.get('/api/db-status', async (req, res) => {
         await connectDB();
         res.json({ 
             success: true, 
-            status: 'connected',
-            database: mongoose.connection.name
+            status: isConnected ? 'connected' : 'disconnected'
         });
     } catch (error) {
-        res.json({ 
-            success: false, 
-            status: 'disconnected',
-            error: error.message
-        });
+        res.json({ success: false, status: 'disconnected', error: error.message });
     }
 });
 
@@ -277,21 +276,12 @@ app.post('/api/seed', authenticate, async (req, res) => {
     }
 });
 
-// Rota raiz
-app.get('/', (req, res) => {
-    res.json({
-        name: 'Hub Plataformas API',
-        version: '1.0.0',
-        endpoints: {
-            health: '/api/health',
-            dbStatus: '/api/db-status',
-            platforms: '/api/platforms',
-            stats: '/api/stats',
-            login: '/api/login',
-            seed: '/api/seed (POST - protected)'
-        }
-    });
+// Rota 404
+app.use('*', (req, res) => {
+    res.status(404).json({ success: false, message: 'Rota não encontrada' });
 });
 
-// Exportar para Vercel
+// Conectar ao banco
+connectDB();
+
 module.exports = app;
