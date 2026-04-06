@@ -1,7 +1,7 @@
 {
   "name": "hub-plataformas-api",
   "version": "1.0.0",
-  "description": "API para gerenciamento de plataformas",
+  "description": "API para gerenciamento de plataformas com MongoDB Atlas",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
