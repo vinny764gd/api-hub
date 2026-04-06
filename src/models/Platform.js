@@ -5,7 +5,8 @@ const platformSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Nome é obrigatório'],
         trim: true,
-        uppercase: true
+        uppercase: true,
+        unique: false
     },
     domain: {
         type: String,
@@ -35,20 +36,14 @@ const platformSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Link é obrigatório'],
         trim: true
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    updatedAt: {
-        type: Date,
-        default: Date.now
     }
 }, {
     timestamps: true
 });
 
-// Índices para busca
+// Índices para busca eficiente
 platformSchema.index({ name: 'text', domain: 'text' });
+platformSchema.index({ type: 1 });
+platformSchema.index({ hot: -1 });
 
 module.exports = mongoose.model('Platform', platformSchema);
