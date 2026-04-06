@@ -2,10 +2,11 @@
   "name": "hub-plataformas-api",
   "version": "1.0.0",
   "description": "API para gerenciamento de plataformas com MongoDB Atlas",
-  "main": "server.js",
+  "main": "api/index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node api/index.js",
+    "dev": "nodemon api/index.js",
+    "vercel-build": "echo Build completed"
   },
   "dependencies": {
     "express": "^4.18.2",
