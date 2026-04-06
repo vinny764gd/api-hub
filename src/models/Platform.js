@@ -5,8 +5,7 @@ const platformSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Nome é obrigatório'],
         trim: true,
-        uppercase: true,
-        unique: false
+        uppercase: true
     },
     domain: {
         type: String,
@@ -41,7 +40,7 @@ const platformSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Índices para busca eficiente
+// Índices
 platformSchema.index({ name: 'text', domain: 'text' });
 platformSchema.index({ type: 1 });
 platformSchema.index({ hot: -1 });
