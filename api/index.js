@@ -5,17 +5,17 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 
-// Configurar CORS para aceitar requisições do frontend
+// Configuração CORS corrigida - PERMITE TODOS OS ORIGENS
 app.use(cors({
-    origin: [
-        'http://localhost:5500',
-        'http://localhost:3000',
-        'http://127.0.0.1:5500',
-        'https://hubpremium.netlify.app/',
-        'https://seu-frontend.vercel.app'
-    ],
+    origin: '*', // Permite qualquer origem
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
+
+// Para garantir que OPTIONS funcione
+app.options('*', cors());
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
