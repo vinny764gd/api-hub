@@ -2,8 +2,6 @@ const Platform = require('../models/Platform');
 const { validationResult } = require('express-validator');
 
 // @desc    Obter todas as plataformas
-// @route   GET /api/platforms
-// @access  Public
 const getPlatforms = async (req, res) => {
     try {
         const { type, search } = req.query;
@@ -17,7 +15,7 @@ const getPlatforms = async (req, res) => {
             }
         }
         
-        if (search) {
+        if (search && search.trim()) {
             query.$or = [
                 { name: { $regex: search, $options: 'i' } },
                 { domain: { $regex: search, $options: 'i' } }
@@ -27,13 +25,12 @@ const getPlatforms = async (req, res) => {
         const platforms = await Platform.find(query).sort({ hot: -1, createdAt: -1 });
         res.json({ success: true, count: platforms.length, data: platforms });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        console.error('Erro ao buscar plataformas:', error);
+        res.status(500).json({ success: false, message: 'Erro ao buscar plataformas' });
     }
 };
 
 // @desc    Obter uma plataforma por ID
-// @route   GET /api/platforms/:id
-// @access  Public
 const getPlatformById = async (req, res) => {
     try {
         const platform = await Platform.findById(req.params.id);
@@ -44,13 +41,14 @@ const getPlatformById = async (req, res) => {
         
         res.json({ success: true, data: platform });
     } catch (error) {
+        if (error.kind === 'ObjectId') {
+            return res.status(404).json({ success: false, message: 'ID inválido' });
+        }
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
 // @desc    Criar nova plataforma
-// @route   POST /api/platforms
-// @access  Private (Admin)
 const createPlatform = async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -61,13 +59,12 @@ const createPlatform = async (req, res) => {
         const platform = await Platform.create(req.body);
         res.status(201).json({ success: true, data: platform });
     } catch (error) {
+        console.error('Erro ao criar plataforma:', error);
         res.status(400).json({ success: false, message: error.message });
     }
 };
 
 // @desc    Atualizar plataforma
-// @route   PUT /api/platforms/:id
-// @access  Private (Admin)
 const updatePlatform = async (req, res) => {
     try {
         const platform = await Platform.findById(req.params.id);
@@ -84,13 +81,12 @@ const updatePlatform = async (req, res) => {
         
         res.json({ success: true, data: updatedPlatform });
     } catch (error) {
+        console.error('Erro ao atualizar plataforma:', error);
         res.status(400).json({ success: false, message: error.message });
     }
 };
 
 // @desc    Excluir plataforma
-// @route   DELETE /api/platforms/:id
-// @access  Private (Admin)
 const deletePlatform = async (req, res) => {
     try {
         const platform = await Platform.findById(req.params.id);
@@ -102,13 +98,12 @@ const deletePlatform = async (req, res) => {
         await platform.deleteOne();
         res.json({ success: true, message: 'Plataforma excluída com sucesso' });
     } catch (error) {
+        console.error('Erro ao excluir plataforma:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
 // @desc    Login do admin
-// @route   POST /api/platforms/login
-// @access  Public
 const login = async (req, res) => {
     const { username, password } = req.body;
     const { validateCredentials, generateToken } = require('../middleware/authMiddleware');
@@ -129,8 +124,6 @@ const login = async (req, res) => {
 };
 
 // @desc    Obter estatísticas
-// @route   GET /api/platforms/stats
-// @access  Public
 const getStats = async (req, res) => {
     try {
         const total = await Platform.countDocuments();
@@ -144,6 +137,7 @@ const getStats = async (req, res) => {
             data: { total, pagando, lancamento, destaque, hot }
         });
     } catch (error) {
+        console.error('Erro ao buscar estatísticas:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
