@@ -1,11 +1,10 @@
 const jwt = require('jsonwebtoken');
 
 const adminCredentials = {
-    username: process.env.ADMIN_USERNAME || 'admin',
-    password: process.env.ADMIN_PASSWORD || 'admin123'
+    username: process.env.ADMIN_USERNAME,
+    password: process.env.ADMIN_PASSWORD
 };
 
-// Middleware para autenticação básica
 const authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     
@@ -24,7 +23,6 @@ const authenticate = async (req, res, next) => {
     }
 };
 
-// Função para gerar token
 const generateToken = (username) => {
     return jwt.sign(
         { username, role: 'admin' },
@@ -33,7 +31,6 @@ const generateToken = (username) => {
     );
 };
 
-// Função para validar credenciais
 const validateCredentials = (username, password) => {
     return username === adminCredentials.username && password === adminCredentials.password;
 };
