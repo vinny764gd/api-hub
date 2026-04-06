@@ -6,22 +6,13 @@ const jwt = require('jsonwebtoken');
 const app = express();
 
 // Configuração CORS MAIS PERMISSIVA POSSÍVEL
-app.use((req, res, next) => {
-    // Permite qualquer origem
-    res.header('Access-Control-Allow-Origin', '*');
-    // Permite qualquer método
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    // Permite qualquer header
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-HTTP-Method-Override, X-Forwarded-For');
-    // Permite credenciais
-    res.header('Access-Control-Allow-Credentials', 'true');
-    
-    // Responde preflight requests imediatamente
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-    next();
-});
+
+app.use(cors({
+    origin: ['https://hubpremium.netlify.app', 'http://localhost:5500', 'http://localhost:3000'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
