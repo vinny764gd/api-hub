@@ -1,84 +1,142 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-
-// Carregar variáveis de ambiente
-dotenv.config();
+const jwt = require('jsonwebtoken');
 
 const app = express();
 
 // Middlewares
 app.use(cors({
-    origin: ['*'],
+    origin: '*',
     credentials: true
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Importar modelos e controladores
-const Platform = require('../src/models/Platform');
-const { validateCredentials, generateToken } = require('../src/middleware/authMiddleware');
+// Configurações
+const MONGODB_URI = process.env.MONGODB_URI;
+const JWT_SECRET = process.env.JWT_SECRET || 'hub_plataformas_secret_key_2024';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
-// Variável para controlar conexão do banco
+// Modelo Platform
+const platformSchema = new mongoose.Schema({
+    name: { type: String, required: true, trim: true, uppercase: true },
+    domain: { type: String, required: true, trim: true, uppercase: true },
+    type: { type: String, required: true, enum: ['pagando', 'lancamento', 'destaque'], default: 'pagando' },
+    badge: { type: String, default: null },
+    hot: { type: Boolean, default: false },
+    image: { type: String, default: null },
+    link: { type: String, required: true, trim: true }
+}, { timestamps: true });
+
+const Platform = mongoose.models.Platform || mongoose.model('Platform', platformSchema);
+
+// Variável de conexão
 let isConnected = false;
 
 // Função para conectar ao MongoDB
-const connectDB = async () => {
+async function connectDB() {
     if (isConnected) {
         console.log('✅ Usando conexão existente');
         return;
     }
     
+    if (!MONGODB_URI) {
+        console.error('❌ MONGODB_URI não definida');
+        throw new Error('MONGODB_URI não configurada');
+    }
+    
     try {
-        const conn = await mongoose.connect(process.env.MONGODB_URI, {
+        await mongoose.connect(MONGODB_URI, {
             useNewUrlParser: true,
             useUnifiedTopology: true,
-            serverSelectionTimeoutMS: 5000,
+            serverSelectionTimeoutMS: 10000,
         });
-        
         isConnected = true;
-        console.log(`✅ MongoDB Atlas Conectado: ${conn.connection.host}`);
+        console.log('✅ MongoDB Atlas Conectado');
     } catch (error) {
-        console.error(`❌ Erro ao conectar: ${error.message}`);
+        console.error('❌ Erro ao conectar:', error.message);
         throw error;
     }
-};
+}
 
-// Health check endpoint
+// Funções de autenticação
+function generateToken(username) {
+    return jwt.sign({ username, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
+}
+
+function validateCredentials(username, password) {
+    return username === ADMIN_USERNAME && password === ADMIN_PASSWORD;
+}
+
+function authenticate(req, res, next) {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ success: false, message: 'Acesso não autorizado' });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch (error) {
+        return res.status(401).json({ success: false, message: 'Token inválido ou expirado' });
+    }
+}
+
+// ============ ROTAS DA API ============
+
+// Health check
 app.get('/api/health', async (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        message: 'API funcionando!',
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Status do banco
+app.get('/api/db-status', async (req, res) => {
     try {
         await connectDB();
         res.json({ 
-            status: 'ok', 
-            message: 'API funcionando!',
-            mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+            success: true, 
+            status: 'connected',
+            database: mongoose.connection.name
         });
     } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
+        res.json({ 
+            success: false, 
+            status: 'disconnected',
+            error: error.message
+        });
     }
 });
 
-// Rota para estatísticas
-app.get('/api/platforms/stats', async (req, res) => {
-    try {
-        await connectDB();
-        const total = await Platform.countDocuments();
-        const pagando = await Platform.countDocuments({ type: 'pagando' });
-        const lancamento = await Platform.countDocuments({ type: 'lancamento' });
-        const destaque = await Platform.countDocuments({ type: 'destaque' });
-        const hot = await Platform.countDocuments({ hot: true });
-        
+// Login
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    
+    if (validateCredentials(username, password)) {
+        const token = generateToken(username);
         res.json({
             success: true,
-            data: { total, pagando, lancamento, destaque, hot }
+            token,
+            message: 'Login realizado com sucesso'
         });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+    } else {
+        res.status(401).json({
+            success: false,
+            message: 'Usuário ou senha inválidos'
+        });
     }
 });
 
-// Rota para listar plataformas
+// Listar plataformas
 app.get('/api/platforms', async (req, res) => {
     try {
         await connectDB();
@@ -108,7 +166,7 @@ app.get('/api/platforms', async (req, res) => {
     }
 });
 
-// Rota para buscar uma plataforma
+// Buscar plataforma por ID
 app.get('/api/platforms/:id', async (req, res) => {
     try {
         await connectDB();
@@ -124,46 +182,26 @@ app.get('/api/platforms/:id', async (req, res) => {
     }
 });
 
-// Rota de login
-app.post('/api/platforms/login', async (req, res) => {
-    const { username, password } = req.body;
-    
-    if (validateCredentials(username, password)) {
-        const token = generateToken(username);
+// Estatísticas
+app.get('/api/stats', async (req, res) => {
+    try {
+        await connectDB();
+        const total = await Platform.countDocuments();
+        const pagando = await Platform.countDocuments({ type: 'pagando' });
+        const lancamento = await Platform.countDocuments({ type: 'lancamento' });
+        const destaque = await Platform.countDocuments({ type: 'destaque' });
+        const hot = await Platform.countDocuments({ hot: true });
+        
         res.json({
             success: true,
-            token,
-            message: 'Login realizado com sucesso'
+            data: { total, pagando, lancamento, destaque, hot }
         });
-    } else {
-        res.status(401).json({
-            success: false,
-            message: 'Usuário ou senha inválidos'
-        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// Middleware de autenticação
-const authenticate = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ message: 'Acesso não autorizado' });
-    }
-    
-    const token = authHeader.split(' ')[1];
-    const jwt = require('jsonwebtoken');
-    
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded;
-        next();
-    } catch (error) {
-        return res.status(401).json({ message: 'Token inválido ou expirado' });
-    }
-};
-
-// Rotas protegidas
+// Criar plataforma (protegido)
 app.post('/api/platforms', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -174,6 +212,7 @@ app.post('/api/platforms', authenticate, async (req, res) => {
     }
 });
 
+// Atualizar plataforma (protegido)
 app.put('/api/platforms/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -185,7 +224,7 @@ app.put('/api/platforms/:id', authenticate, async (req, res) => {
         
         const updatedPlatform = await Platform.findByIdAndUpdate(
             req.params.id,
-            { ...req.body, updatedAt: Date.now() },
+            req.body,
             { new: true, runValidators: true }
         );
         
@@ -195,6 +234,7 @@ app.put('/api/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
+// Excluir plataforma (protegido)
 app.delete('/api/platforms/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -211,7 +251,7 @@ app.delete('/api/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
-// Rota para dados iniciais (seed)
+// Seed inicial (protegido)
 app.post('/api/seed', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -230,16 +270,27 @@ app.post('/api/seed', authenticate, async (req, res) => {
             await Platform.insertMany(initialData);
             res.json({ success: true, message: `${initialData.length} plataformas inseridas` });
         } else {
-            res.json({ success: true, message: 'Banco já possui dados' });
+            res.json({ success: true, message: 'Banco já possui dados', count });
         }
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// Rota padrão
-app.get('*', (req, res) => {
-    res.json({ message: 'API Hub Plataformas - Versão 1.0' });
+// Rota raiz
+app.get('/', (req, res) => {
+    res.json({
+        name: 'Hub Plataformas API',
+        version: '1.0.0',
+        endpoints: {
+            health: '/api/health',
+            dbStatus: '/api/db-status',
+            platforms: '/api/platforms',
+            stats: '/api/stats',
+            login: '/api/login',
+            seed: '/api/seed (POST - protected)'
+        }
+    });
 });
 
 // Exportar para Vercel
