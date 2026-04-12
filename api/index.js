@@ -10,15 +10,12 @@ app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Configurações
 const MONGODB_URI = process.env.MONGODB_URI;
 const JWT_SECRET = process.env.JWT_SECRET || 'hub_plataformas_secret_key_2024';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
-// ============ MODELOS ============
-
-// Modelo Platform
+// Modelos
 const platformSchema = new mongoose.Schema({
     name: { type: String, required: true, trim: true, uppercase: true },
     domain: { type: String, required: true, trim: true, uppercase: true },
@@ -33,9 +30,6 @@ const platformSchema = new mongoose.Schema({
     updatedAt: { type: Date, default: Date.now }
 });
 
-const Platform = mongoose.models.Platform || mongoose.model('Platform', platformSchema);
-
-// Modelo para atividades
 const activitySchema = new mongoose.Schema({
     type: { type: String, enum: ['saque', 'nova_plataforma', 'topo_ranking', 'cadastro'], required: true },
     user: { type: String, required: true },
@@ -44,38 +38,33 @@ const activitySchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
-const Activity = mongoose.models.Activity || mongoose.model('Activity', activitySchema);
-
-// Modelo para configurações do site
-const settingSchema = new mongoose.Schema({
-    key: { type: String, required: true, unique: true },
-    value: { type: mongoose.Schema.Types.Mixed, required: true },
-    updatedAt: { type: Date, default: Date.now }
-});
-
-const Setting = mongoose.models.Setting || mongoose.model('Setting', settingSchema);
-
-// Modelo para depoimentos
 const testimonialSchema = new mongoose.Schema({
     name: { type: String, required: true },
     avatar: { type: String, default: null },
     text: { type: String, required: true },
     rating: { type: Number, default: 5, min: 1, max: 5 },
-    date: { type: Date, default: Date.now },
     active: { type: Boolean, default: true },
-    order: { type: Number, default: 0 }
+    order: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
 });
 
-const Testimonial = mongoose.models.Testimonial || mongoose.model('Testimonial', testimonialSchema);
-
-// Modelo para leads
 const leadSchema = new mongoose.Schema({
     whatsapp: { type: String, required: true },
     name: { type: String, default: null },
     createdAt: { type: Date, default: Date.now }
 });
 
+const settingSchema = new mongoose.Schema({
+    key: { type: String, required: true, unique: true },
+    value: { type: mongoose.Schema.Types.Mixed, required: true },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+const Platform = mongoose.models.Platform || mongoose.model('Platform', platformSchema);
+const Activity = mongoose.models.Activity || mongoose.model('Activity', activitySchema);
+const Testimonial = mongoose.models.Testimonial || mongoose.model('Testimonial', testimonialSchema);
 const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
+const Setting = mongoose.models.Setting || mongoose.model('Setting', settingSchema);
 
 let isConnected = false;
 
@@ -88,13 +77,12 @@ async function connectDB() {
         console.log('✅ MongoDB Atlas Conectado');
         await initializeDefaultSettings();
     } catch (error) {
-        console.error('❌ Erro ao conectar:', error.message);
+        console.error('❌ Erro:', error.message);
     }
 }
 
-// Inicializar configurações padrão
 async function initializeDefaultSettings() {
-    const defaultSettings = [
+    const defaults = [
         { key: 'site_title', value: 'Hub Premium' },
         { key: 'site_subtitle', value: 'Descubra plataformas que estão pagando agora' },
         { key: 'hero_title', value: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>' },
@@ -102,23 +90,16 @@ async function initializeDefaultSettings() {
         { key: 'stats_total_users', value: 50234 },
         { key: 'stats_total_payments', value: 1250000 },
         { key: 'stats_daily_updates', value: 12 },
-        { key: 'whatsapp_group_link', value: 'https://chat.whatsapp.com/SEU_LINK_AQUI' },
-        { key: 'countdown_hours', value: 24 },
-        { key: 'maintenance_mode', value: false }
+        { key: 'whatsapp_group_link', value: 'https://chat.whatsapp.com/SEU_LINK' },
+        { key: 'countdown_hours', value: 24 }
     ];
-    
-    for (const setting of defaultSettings) {
+    for (const setting of defaults) {
         await Setting.findOneAndUpdate({ key: setting.key }, setting, { upsert: true });
     }
 }
 
-// Funções de autenticação
 function generateToken(username) {
     return jwt.sign({ username, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
-}
-
-function validateCredentials(username, password) {
-    return username === ADMIN_USERNAME && password === ADMIN_PASSWORD;
 }
 
 function authenticate(req, res, next) {
@@ -134,33 +115,30 @@ function authenticate(req, res, next) {
     }
 }
 
-// ============ ROTAS PÚBLICAS ============
-
+// Rotas Públicas
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
-    if (validateCredentials(username, password)) {
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
         res.json({ success: true, token: generateToken(username) });
     } else {
         res.status(401).json({ success: false, message: 'Credenciais inválidas' });
     }
 });
 
-// Obter configurações públicas
 app.get('/api/settings/public', async (req, res) => {
     try {
         await connectDB();
-        const settings = await Setting.find({ key: { $in: ['site_title', 'site_subtitle', 'hero_title', 'hero_subtitle', 'stats_total_users', 'stats_total_payments', 'stats_daily_updates', 'whatsapp_group_link', 'countdown_hours'] } });
-        const settingsObj = {};
-        settings.forEach(s => settingsObj[s.key] = s.value);
-        res.json({ success: true, data: settingsObj });
+        const settings = await Setting.find();
+        const obj = {};
+        settings.forEach(s => obj[s.key] = s.value);
+        res.json({ success: true, data: obj });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false });
     }
 });
 
-// Listar plataformas
 app.get('/api/platforms', async (req, res) => {
     try {
         await connectDB();
@@ -178,11 +156,10 @@ app.get('/api/platforms', async (req, res) => {
         const platforms = await Platform.find(query).sort({ hot: -1, order: 1, clicks: -1 });
         res.json({ success: true, count: platforms.length, data: platforms });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false });
     }
 });
 
-// Registrar clique
 app.post('/api/platforms/:id/click', async (req, res) => {
     try {
         await connectDB();
@@ -196,43 +173,38 @@ app.post('/api/platforms/:id/click', async (req, res) => {
     }
 });
 
-// Obter estatísticas
 app.get('/api/stats', async (req, res) => {
     try {
         await connectDB();
-        const [total, pagando, lancamento, destaque, hot, activities, settings] = await Promise.all([
+        const [total, pagando, lancamento, destaque, hot, settings] = await Promise.all([
             Platform.countDocuments(),
             Platform.countDocuments({ type: 'pagando' }),
             Platform.countDocuments({ type: 'lancamento' }),
             Platform.countDocuments({ type: 'destaque' }),
             Platform.countDocuments({ hot: true }),
-            Activity.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
             Setting.find()
         ]);
-        
+        const totalClicks = (await Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }]))[0]?.total || 0;
         const settingsObj = {};
         settings.forEach(s => settingsObj[s.key] = s.value);
-        
         res.json({
             success: true,
             data: {
                 total, pagando, lancamento, destaque, hot,
-                totalClicks: (await Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }]))[0]?.total || 0,
-                estimatedPayments: ((await Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }]))[0]?.total || 0) * 50,
+                totalClicks,
+                estimatedPayments: totalClicks * 50,
                 updatedToday: await Platform.countDocuments({ updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
                 newToday: await Platform.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
-                activityToday: activities,
                 stats_total_users: settingsObj.stats_total_users || 50234,
                 stats_total_payments: settingsObj.stats_total_payments || 1250000,
                 stats_daily_updates: settingsObj.stats_daily_updates || 12
             }
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false });
     }
 });
 
-// Obter ranking
 app.get('/api/ranking', async (req, res) => {
     try {
         await connectDB();
@@ -242,11 +214,10 @@ app.get('/api/ranking', async (req, res) => {
         }));
         res.json({ success: true, data: ranking });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false });
     }
 });
 
-// Obter atividades
 app.get('/api/activity', async (req, res) => {
     try {
         await connectDB();
@@ -272,18 +243,16 @@ app.get('/api/activity', async (req, res) => {
     }
 });
 
-// Obter depoimentos
 app.get('/api/testimonials', async (req, res) => {
     try {
         await connectDB();
-        const testimonials = await Testimonial.find({ active: true }).sort({ order: 1, date: -1 }).limit(6);
+        const testimonials = await Testimonial.find({ active: true }).sort({ order: 1, createdAt: -1 }).limit(6);
         res.json({ success: true, data: testimonials });
     } catch (error) {
         res.status(500).json({ success: false });
     }
 });
 
-// Cadastrar lead
 app.post('/api/leads', async (req, res) => {
     try {
         await connectDB();
@@ -296,16 +265,29 @@ app.post('/api/leads', async (req, res) => {
     }
 });
 
-// ============ ROTAS ADMINISTRATIVAS (PROTEGIDAS) ============
+// Rotas Admin
+app.get('/api/admin/stats/full', authenticate, async (req, res) => {
+    try {
+        await connectDB();
+        const [platforms, activities, leads, testimonials] = await Promise.all([
+            Platform.countDocuments(),
+            Activity.countDocuments(),
+            Lead.countDocuments(),
+            Testimonial.countDocuments()
+        ]);
+        res.json({ success: true, data: { platforms, activities, leads, testimonials } });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
 
-// Configurações
 app.get('/api/admin/settings', authenticate, async (req, res) => {
     try {
         await connectDB();
         const settings = await Setting.find();
-        const settingsObj = {};
-        settings.forEach(s => settingsObj[s.key] = s.value);
-        res.json({ success: true, data: settingsObj });
+        const obj = {};
+        settings.forEach(s => obj[s.key] = s.value);
+        res.json({ success: true, data: obj });
     } catch (error) {
         res.status(500).json({ success: false });
     }
@@ -323,10 +305,9 @@ app.put('/api/admin/settings', authenticate, async (req, res) => {
     }
 });
 
-// CRUD Plataformas
 app.get('/api/admin/platforms', authenticate, async (req, res) => {
     await connectDB();
-    const platforms = await Platform.find().sort({ order: 1 });
+    const platforms = await Platform.find().sort({ order: 1, createdAt: -1 });
     res.json({ success: true, data: platforms });
 });
 
@@ -361,10 +342,9 @@ app.delete('/api/admin/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
-// CRUD Depoimentos
 app.get('/api/admin/testimonials', authenticate, async (req, res) => {
     await connectDB();
-    const testimonials = await Testimonial.find().sort({ order: 1 });
+    const testimonials = await Testimonial.find().sort({ order: 1, createdAt: -1 });
     res.json({ success: true, data: testimonials });
 });
 
@@ -398,7 +378,6 @@ app.delete('/api/admin/testimonials/:id', authenticate, async (req, res) => {
     }
 });
 
-// Atividades (admin)
 app.post('/api/admin/activities', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -419,7 +398,6 @@ app.delete('/api/admin/activities/:id', authenticate, async (req, res) => {
     }
 });
 
-// Leads
 app.get('/api/admin/leads', authenticate, async (req, res) => {
     await connectDB();
     const leads = await Lead.find().sort({ createdAt: -1 });
@@ -431,22 +409,6 @@ app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
         await connectDB();
         await Lead.findByIdAndDelete(req.params.id);
         res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ success: false });
-    }
-});
-
-// Estatísticas admin
-app.get('/api/admin/stats/full', authenticate, async (req, res) => {
-    try {
-        await connectDB();
-        const [platforms, activities, leads, testimonials] = await Promise.all([
-            Platform.countDocuments(),
-            Activity.countDocuments(),
-            Lead.countDocuments(),
-            Testimonial.countDocuments()
-        ]);
-        res.json({ success: true, data: { platforms, activities, leads, testimonials } });
     } catch (error) {
         res.status(500).json({ success: false });
     }
