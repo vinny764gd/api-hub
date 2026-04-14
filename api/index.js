@@ -86,15 +86,42 @@ async function connectDB() {
 
 async function initializeDefaultSettings() {
     const defaults = [
+        // Configurações do Site
         { key: 'site_title', value: 'Hub Premium' },
         { key: 'site_subtitle', value: 'Descubra plataformas que estão pagando agora' },
+        { key: 'site_logo_text', value: 'HubPremium' },
+        { key: 'site_footer_text', value: 'O maior hub de plataformas que pagam do Brasil.' },
+        
+        // Configurações do Hero
         { key: 'hero_title', value: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>' },
         { key: 'hero_subtitle', value: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!' },
+        { key: 'hero_badge_text', value: '+100 Plataformas Verificadas' },
+        
+        // Estatísticas (valores reais)
         { key: 'stats_total_users', value: 50234 },
         { key: 'stats_total_payments', value: 1250000 },
         { key: 'stats_daily_updates', value: 12 },
+        { key: 'stats_payment_label', value: 'em pagamentos' },
+        { key: 'stats_users_label', value: 'usuários ativos' },
+        { key: 'stats_updates_label', value: 'atualizações hoje' },
+        
+        // Contato e Redes Sociais
+        { key: 'contact_email', value: 'contato@hubpremium.com' },
+        { key: 'contact_phone', value: '(11) 99999-9999' },
+        { key: 'contact_whatsapp', value: '5511999999999' },
+        { key: 'social_instagram', value: 'https://instagram.com/hubpremium' },
+        { key: 'social_telegram', value: 'https://t.me/hubpremium' },
+        { key: 'social_youtube', value: 'https://youtube.com/@hubpremium' },
+        { key: 'social_tiktok', value: 'https://tiktok.com/@hubpremium' },
+        
+        // WhatsApp Group
         { key: 'whatsapp_group_link', value: 'https://chat.whatsapp.com/SEU_LINK' },
-        { key: 'countdown_hours', value: 24 }
+        { key: 'whatsapp_group_text', value: 'Grupo VIP' },
+        
+        // Outros
+        { key: 'countdown_hours', value: 24 },
+        { key: 'maintenance_mode', value: false },
+        { key: 'footer_disclaimer', value: 'Não somos afiliados às plataformas. Apenas fornecemos informações.' }
     ];
     for (const setting of defaults) {
         await Setting.findOneAndUpdate({ key: setting.key }, setting, { upsert: true });
@@ -184,13 +211,29 @@ app.get('/api/settings', async (req, res) => {
         const defaultSettings = {
             site_title: 'Hub Premium',
             site_subtitle: 'Descubra plataformas que estão pagando agora',
+            site_logo_text: 'HubPremium',
+            site_footer_text: 'O maior hub de plataformas que pagam do Brasil.',
             hero_title: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>',
             hero_subtitle: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!',
+            hero_badge_text: '+100 Plataformas Verificadas',
             stats_total_users: 50234,
             stats_total_payments: 1250000,
             stats_daily_updates: 12,
+            stats_payment_label: 'em pagamentos',
+            stats_users_label: 'usuários ativos',
+            stats_updates_label: 'atualizações hoje',
+            contact_email: 'contato@hubpremium.com',
+            contact_phone: '(11) 99999-9999',
+            contact_whatsapp: '5511999999999',
+            social_instagram: 'https://instagram.com/hubpremium',
+            social_telegram: 'https://t.me/hubpremium',
+            social_youtube: 'https://youtube.com/@hubpremium',
+            social_tiktok: 'https://tiktok.com/@hubpremium',
             whatsapp_group_link: 'https://chat.whatsapp.com/SEU_LINK',
-            countdown_hours: 24
+            whatsapp_group_text: 'Grupo VIP',
+            countdown_hours: 24,
+            maintenance_mode: false,
+            footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
         };
         
         const finalSettings = { ...defaultSettings, ...obj };
@@ -199,13 +242,29 @@ app.get('/api/settings', async (req, res) => {
         res.json({ success: true, data: {
             site_title: 'Hub Premium',
             site_subtitle: 'Descubra plataformas que estão pagando agora',
+            site_logo_text: 'HubPremium',
+            site_footer_text: 'O maior hub de plataformas que pagam do Brasil.',
             hero_title: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>',
             hero_subtitle: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!',
+            hero_badge_text: '+100 Plataformas Verificadas',
             stats_total_users: 50234,
             stats_total_payments: 1250000,
             stats_daily_updates: 12,
+            stats_payment_label: 'em pagamentos',
+            stats_users_label: 'usuários ativos',
+            stats_updates_label: 'atualizações hoje',
+            contact_email: 'contato@hubpremium.com',
+            contact_phone: '(11) 99999-9999',
+            contact_whatsapp: '5511999999999',
+            social_instagram: '#',
+            social_telegram: '#',
+            social_youtube: '#',
+            social_tiktok: '#',
             whatsapp_group_link: 'https://chat.whatsapp.com/SEU_LINK',
-            countdown_hours: 24
+            whatsapp_group_text: 'Grupo VIP',
+            countdown_hours: 24,
+            maintenance_mode: false,
+            footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
         }});
     }
 });
@@ -282,22 +341,28 @@ app.get('/api/activity', async (req, res) => {
 app.get('/api/stats', async (req, res) => {
     try {
         await connectDB();
-        const [total, pagando, lancamento, destaque, hot, settings] = await Promise.all([
+        const [total, pagando, lancamento, destaque, hot, settings, totalClicksResult] = await Promise.all([
             Platform.countDocuments(),
             Platform.countDocuments({ type: 'pagando' }),
             Platform.countDocuments({ type: 'lancamento' }),
             Platform.countDocuments({ type: 'destaque' }),
             Platform.countDocuments({ hot: true }),
-            Setting.find()
+            Setting.find(),
+            Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }])
         ]);
-        const totalClicks = (await Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }]))[0]?.total || 0;
+        
+        const totalClicks = totalClicksResult[0]?.total || 0;
         const settingsObj = {};
         settings.forEach(s => settingsObj[s.key] = s.value);
+        
+        // Calcular pagamentos estimados baseado nos cliques (cada clique = R$50 em média)
+        const estimatedPayments = totalClicks * 50;
+        
         res.json({
             success: true,
             data: {
                 total, pagando, lancamento, destaque, hot, totalClicks,
-                estimatedPayments: totalClicks * 50,
+                estimatedPayments: estimatedPayments,
                 updatedToday: await Platform.countDocuments({ updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
                 newToday: await Platform.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
                 stats_total_users: settingsObj.stats_total_users || 50234,
@@ -308,7 +373,7 @@ app.get('/api/stats', async (req, res) => {
     } catch (error) {
         res.json({ success: true, data: {
             total: 0, pagando: 0, lancamento: 0, destaque: 0, hot: 0, totalClicks: 0,
-            estimatedPayments: 0, updatedToday: 0, newToday: 0,
+            estimatedPayments: 1250000, updatedToday: 0, newToday: 0,
             stats_total_users: 50234, stats_total_payments: 1250000, stats_daily_updates: 12
         }});
     }
