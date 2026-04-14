@@ -75,6 +75,7 @@ async function connectDB() {
         isConnected = true;
         console.log('✅ MongoDB Atlas Conectado');
         await initializeDefaultSettings();
+        await seedInitialData();
     } catch (error) {
         console.error('❌ Erro:', error.message);
     }
@@ -97,6 +98,36 @@ async function initializeDefaultSettings() {
     }
 }
 
+async function seedInitialData() {
+    const platformCount = await Platform.countDocuments();
+    if (platformCount === 0) {
+        await Platform.insertMany([
+            { name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523 },
+            { name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892 },
+            { name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234 },
+            { name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100 }
+        ]);
+    }
+    
+    const testimonialCount = await Testimonial.countDocuments();
+    if (testimonialCount === 0) {
+        await Testimonial.insertMany([
+            { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos!", rating: 5, active: true },
+            { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As plataformas são confiáveis.", rating: 5, active: true },
+            { name: "Rafael Oliveira", text: "Já testei várias plataformas e as que estão aqui realmente funcionam!", rating: 4, active: true }
+        ]);
+    }
+    
+    const activityCount = await Activity.countDocuments();
+    if (activityCount === 0) {
+        await Activity.insertMany([
+            { type: "saque", user: "João S.", platform: "EE44", amount: 350, createdAt: new Date() },
+            { type: "saque", user: "Maria F.", platform: "8EEE", amount: 780, createdAt: new Date(Date.now() - 120000) },
+            { type: "topo_ranking", user: "Rafael L.", platform: "33X", createdAt: new Date(Date.now() - 300000) }
+        ]);
+    }
+}
+
 function generateToken(username) {
     return jwt.sign({ username, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
 }
@@ -112,6 +143,16 @@ function authenticate(req, res, next) {
     } catch {
         return res.status(401).json({ success: false, message: 'Token inválido' });
     }
+}
+
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    if (seconds < 60) return 'agora mesmo';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `há ${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `há ${hours} h`;
+    return `há ${Math.floor(hours / 24)} d`;
 }
 
 // ========== ROTAS PÚBLICAS ==========
@@ -200,13 +241,16 @@ app.get('/api/leads', async (req, res) => {
 app.get('/api/stats', async (req, res) => {
     try {
         await connectDB();
-        const [total, pagando, lancamento, destaque, hot, settings] = await Promise.all([
+        const [total, pagando, lancamento, destaque, hot, settings, testimonialsCount, activitiesCount, leadsCount] = await Promise.all([
             Platform.countDocuments(),
             Platform.countDocuments({ type: 'pagando' }),
             Platform.countDocuments({ type: 'lancamento' }),
             Platform.countDocuments({ type: 'destaque' }),
             Platform.countDocuments({ hot: true }),
-            Setting.find()
+            Setting.find(),
+            Testimonial.countDocuments(),
+            Activity.countDocuments(),
+            Lead.countDocuments()
         ]);
         const totalClicks = (await Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }]))[0]?.total || 0;
         const settingsObj = {};
@@ -220,7 +264,8 @@ app.get('/api/stats', async (req, res) => {
                 newToday: await Platform.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
                 stats_total_users: settingsObj.stats_total_users || 50234,
                 stats_total_payments: settingsObj.stats_total_payments || 1250000,
-                stats_daily_updates: settingsObj.stats_daily_updates || 12
+                stats_daily_updates: settingsObj.stats_daily_updates || 12,
+                testimonialsCount, activitiesCount, leadsCount
             }
         });
     } catch (error) {
@@ -239,6 +284,18 @@ app.get('/api/ranking', async (req, res) => {
     }
 });
 
+app.post('/api/leads', async (req, res) => {
+    try {
+        await connectDB();
+        const { whatsapp, name } = req.body;
+        if (!whatsapp || whatsapp.length < 10) return res.status(400).json({ success: false });
+        await Lead.findOneAndUpdate({ whatsapp }, { whatsapp, name }, { upsert: true });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
 // ========== ROTAS ADMIN (PROTEGIDAS) ==========
 app.put('/api/settings', authenticate, async (req, res) => {
     try {
@@ -252,6 +309,7 @@ app.put('/api/settings', authenticate, async (req, res) => {
     }
 });
 
+// Plataformas CRUD
 app.post('/api/platforms', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -283,7 +341,18 @@ app.delete('/api/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
-app.post('/api/testimonials', authenticate, async (req, res) => {
+// Depoimentos CRUD
+app.get('/api/admin/testimonials', authenticate, async (req, res) => {
+    try {
+        await connectDB();
+        const testimonials = await Testimonial.find().sort({ createdAt: -1 });
+        res.json({ success: true, data: testimonials });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+app.post('/api/admin/testimonials', authenticate, async (req, res) => {
     try {
         await connectDB();
         const testimonial = await Testimonial.create(req.body);
@@ -293,7 +362,7 @@ app.post('/api/testimonials', authenticate, async (req, res) => {
     }
 });
 
-app.put('/api/testimonials/:id', authenticate, async (req, res) => {
+app.put('/api/admin/testimonials/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         const testimonial = await Testimonial.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -303,7 +372,7 @@ app.put('/api/testimonials/:id', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/testimonials/:id', authenticate, async (req, res) => {
+app.delete('/api/admin/testimonials/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         await Testimonial.findByIdAndDelete(req.params.id);
@@ -313,7 +382,18 @@ app.delete('/api/testimonials/:id', authenticate, async (req, res) => {
     }
 });
 
-app.post('/api/activities', authenticate, async (req, res) => {
+// Atividades CRUD
+app.get('/api/admin/activities', authenticate, async (req, res) => {
+    try {
+        await connectDB();
+        const activities = await Activity.find().sort({ createdAt: -1 });
+        res.json({ success: true, data: activities });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+app.post('/api/admin/activities', authenticate, async (req, res) => {
     try {
         await connectDB();
         const activity = await Activity.create(req.body);
@@ -323,7 +403,17 @@ app.post('/api/activities', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/activities/:id', authenticate, async (req, res) => {
+app.put('/api/admin/activities/:id', authenticate, async (req, res) => {
+    try {
+        await connectDB();
+        const activity = await Activity.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.json({ success: true, data: activity });
+    } catch (error) {
+        res.status(400).json({ success: false });
+    }
+});
+
+app.delete('/api/admin/activities/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         await Activity.findByIdAndDelete(req.params.id);
@@ -333,7 +423,18 @@ app.delete('/api/activities/:id', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/leads/:id', authenticate, async (req, res) => {
+// Leads CRUD
+app.get('/api/admin/leads', authenticate, async (req, res) => {
+    try {
+        await connectDB();
+        const leads = await Lead.find().sort({ createdAt: -1 });
+        res.json({ success: true, data: leads });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         await Lead.findByIdAndDelete(req.params.id);
@@ -342,16 +443,6 @@ app.delete('/api/leads/:id', authenticate, async (req, res) => {
         res.status(500).json({ success: false });
     }
 });
-
-function getTimeAgo(date) {
-    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-    if (seconds < 60) return 'agora mesmo';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `há ${minutes} min`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `há ${hours} h`;
-    return `há ${Math.floor(hours / 24)} d`;
-}
 
 connectDB();
 module.exports = app;
