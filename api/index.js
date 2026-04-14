@@ -86,26 +86,19 @@ async function connectDB() {
 
 async function initializeDefaultSettings() {
     const defaults = [
-        // Configurações do Site
         { key: 'site_title', value: 'Hub Premium' },
         { key: 'site_subtitle', value: 'Descubra plataformas que estão pagando agora' },
         { key: 'site_logo_text', value: 'HubPremium' },
         { key: 'site_footer_text', value: 'O maior hub de plataformas que pagam do Brasil.' },
-        
-        // Configurações do Hero
         { key: 'hero_title', value: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>' },
         { key: 'hero_subtitle', value: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!' },
         { key: 'hero_badge_text', value: '+100 Plataformas Verificadas' },
-        
-        // Estatísticas (valores reais)
         { key: 'stats_total_users', value: 50234 },
         { key: 'stats_total_payments', value: 1250000 },
         { key: 'stats_daily_updates', value: 12 },
         { key: 'stats_payment_label', value: 'em pagamentos' },
         { key: 'stats_users_label', value: 'usuários ativos' },
         { key: 'stats_updates_label', value: 'atualizações hoje' },
-        
-        // Contato e Redes Sociais
         { key: 'contact_email', value: 'contato@hubpremium.com' },
         { key: 'contact_phone', value: '(11) 99999-9999' },
         { key: 'contact_whatsapp', value: '5511999999999' },
@@ -113,14 +106,9 @@ async function initializeDefaultSettings() {
         { key: 'social_telegram', value: 'https://t.me/hubpremium' },
         { key: 'social_youtube', value: 'https://youtube.com/@hubpremium' },
         { key: 'social_tiktok', value: 'https://tiktok.com/@hubpremium' },
-        
-        // WhatsApp Group
         { key: 'whatsapp_group_link', value: 'https://chat.whatsapp.com/SEU_LINK' },
         { key: 'whatsapp_group_text', value: 'Grupo VIP' },
-        
-        // Outros
         { key: 'countdown_hours', value: 24 },
-        { key: 'maintenance_mode', value: false },
         { key: 'footer_disclaimer', value: 'Não somos afiliados às plataformas. Apenas fornecemos informações.' }
     ];
     for (const setting of defaults) {
@@ -200,7 +188,6 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Configurações do site
 app.get('/api/settings', async (req, res) => {
     try {
         await connectDB();
@@ -225,14 +212,13 @@ app.get('/api/settings', async (req, res) => {
             contact_email: 'contato@hubpremium.com',
             contact_phone: '(11) 99999-9999',
             contact_whatsapp: '5511999999999',
-            social_instagram: 'https://instagram.com/hubpremium',
-            social_telegram: 'https://t.me/hubpremium',
-            social_youtube: 'https://youtube.com/@hubpremium',
-            social_tiktok: 'https://tiktok.com/@hubpremium',
+            social_instagram: '#',
+            social_telegram: '#',
+            social_youtube: '#',
+            social_tiktok: '#',
             whatsapp_group_link: 'https://chat.whatsapp.com/SEU_LINK',
             whatsapp_group_text: 'Grupo VIP',
             countdown_hours: 24,
-            maintenance_mode: false,
             footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
         };
         
@@ -263,13 +249,11 @@ app.get('/api/settings', async (req, res) => {
             whatsapp_group_link: 'https://chat.whatsapp.com/SEU_LINK',
             whatsapp_group_text: 'Grupo VIP',
             countdown_hours: 24,
-            maintenance_mode: false,
             footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
         }});
     }
 });
 
-// Listar plataformas
 app.get('/api/platforms', async (req, res) => {
     try {
         await connectDB();
@@ -295,27 +279,35 @@ app.get('/api/platforms', async (req, res) => {
     }
 });
 
-// Ranking
+app.post('/api/platforms/:id/click', async (req, res) => {
+    try {
+        await connectDB();
+        const platform = await Platform.findById(req.params.id);
+        if (!platform) {
+            return res.status(404).json({ success: false, message: 'Plataforma não encontrada' });
+        }
+        platform.clicks = (platform.clicks || 0) + 1;
+        await platform.save();
+        res.json({ success: true, clicks: platform.clicks });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 
 app.get('/api/ranking', async (req, res) => {
     try {
         await connectDB();
-        const platforms = await Platform.find().sort({ hot: -1, clicks: -1 }).limit(10);
-        
-        // Gerar acessos diários aleatórios entre 1000 e 10000
+        const platforms = await Platform.find().sort({ clicks: -1, hot: -1 }).limit(10);
         const ranking = platforms.map((p, i) => ({
             position: i + 1,
             id: p._id,
             name: p.name,
             domain: p.domain,
             link: p.link,
-            // Acessos diários aleatórios (não salvos no banco)
             dailyClicks: Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000
         }));
-        
         res.json({ success: true, data: ranking });
     } catch (error) {
-        // Dados mock para fallback
         const mockPlatforms = [
             { name: "EE44", domain: "EE44.COM", link: "https://ee44.com", dailyClicks: 8452 },
             { name: "33X", domain: "33X.COM", link: "https://33x.com", dailyClicks: 7231 },
@@ -328,7 +320,6 @@ app.get('/api/ranking', async (req, res) => {
     }
 });
 
-// Depoimentos (ativos)
 app.get('/api/testimonials', async (req, res) => {
     try {
         await connectDB();
@@ -339,7 +330,6 @@ app.get('/api/testimonials', async (req, res) => {
     }
 });
 
-// Atividades em tempo real
 app.get('/api/activity', async (req, res) => {
     try {
         await connectDB();
@@ -358,7 +348,6 @@ app.get('/api/activity', async (req, res) => {
     }
 });
 
-// Estatísticas
 app.get('/api/stats', async (req, res) => {
     try {
         await connectDB();
@@ -376,14 +365,11 @@ app.get('/api/stats', async (req, res) => {
         const settingsObj = {};
         settings.forEach(s => settingsObj[s.key] = s.value);
         
-        // Calcular pagamentos estimados baseado nos cliques (cada clique = R$50 em média)
-        const estimatedPayments = totalClicks * 50;
-        
         res.json({
             success: true,
             data: {
                 total, pagando, lancamento, destaque, hot, totalClicks,
-                estimatedPayments: estimatedPayments,
+                estimatedPayments: totalClicks * 50,
                 updatedToday: await Platform.countDocuments({ updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
                 newToday: await Platform.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
                 stats_total_users: settingsObj.stats_total_users || 50234,
@@ -400,7 +386,6 @@ app.get('/api/stats', async (req, res) => {
     }
 });
 
-// Leads (cadastro WhatsApp)
 app.post('/api/leads', async (req, res) => {
     try {
         await connectDB();
@@ -414,8 +399,6 @@ app.post('/api/leads', async (req, res) => {
 });
 
 // ========== ROTAS ADMIN (PROTEGIDAS) ==========
-
-// Configurações (admin)
 app.put('/api/settings', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -428,7 +411,6 @@ app.put('/api/settings', authenticate, async (req, res) => {
     }
 });
 
-// Plataformas CRUD
 app.post('/api/platforms', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -460,7 +442,6 @@ app.delete('/api/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
-// Depoimentos CRUD (admin)
 app.get('/api/admin/testimonials', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -501,7 +482,6 @@ app.delete('/api/admin/testimonials/:id', authenticate, async (req, res) => {
     }
 });
 
-// Atividades CRUD (admin)
 app.get('/api/admin/activities', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -542,7 +522,6 @@ app.delete('/api/admin/activities/:id', authenticate, async (req, res) => {
     }
 });
 
-// Leads CRUD (admin)
 app.get('/api/admin/leads', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -563,7 +542,6 @@ app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
     }
 });
 
-// Rota 404 para rotas não encontradas
 app.use('*', (req, res) => {
     res.status(404).json({ success: false, message: 'Rota não encontrada' });
 });
