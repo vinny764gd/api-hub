@@ -296,14 +296,35 @@ app.get('/api/platforms', async (req, res) => {
 });
 
 // Ranking
+
 app.get('/api/ranking', async (req, res) => {
     try {
         await connectDB();
-        const platforms = await Platform.find().sort({ clicks: -1, hot: -1 }).limit(10);
-        const ranking = platforms.map((p, i) => ({ position: i + 1, id: p._id, name: p.name, domain: p.domain, clicks: p.clicks || 0, link: p.link }));
+        const platforms = await Platform.find().sort({ hot: -1, clicks: -1 }).limit(10);
+        
+        // Gerar acessos diários aleatórios entre 1000 e 10000
+        const ranking = platforms.map((p, i) => ({
+            position: i + 1,
+            id: p._id,
+            name: p.name,
+            domain: p.domain,
+            link: p.link,
+            // Acessos diários aleatórios (não salvos no banco)
+            dailyClicks: Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000
+        }));
+        
         res.json({ success: true, data: ranking });
     } catch (error) {
-        res.json({ success: true, data: [] });
+        // Dados mock para fallback
+        const mockPlatforms = [
+            { name: "EE44", domain: "EE44.COM", link: "https://ee44.com", dailyClicks: 8452 },
+            { name: "33X", domain: "33X.COM", link: "https://33x.com", dailyClicks: 7231 },
+            { name: "8EEE", domain: "8EEE.COM", link: "https://8eee.com", dailyClicks: 5678 },
+            { name: "BB22", domain: "BB22.COM", link: "https://bb22.com", dailyClicks: 4321 },
+            { name: "68D", domain: "68D.COM", link: "https://68d.com", dailyClicks: 3210 }
+        ];
+        const ranking = mockPlatforms.map((p, i) => ({ ...p, position: i + 1 }));
+        res.json({ success: true, data: ranking });
     }
 });
 
