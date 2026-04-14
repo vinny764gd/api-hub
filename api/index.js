@@ -80,7 +80,7 @@ async function connectDB() {
         await initializeDefaultSettings();
         await seedInitialData();
     } catch (error) {
-        console.error('❌ Erro:', error.message);
+        console.error('❌ Erro ao conectar MongoDB:', error.message);
     }
 }
 
@@ -89,7 +89,7 @@ async function initializeDefaultSettings() {
         { key: 'site_title', value: 'Hub Premium' },
         { key: 'site_subtitle', value: 'Descubra plataformas que estão pagando agora' },
         { key: 'hero_title', value: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>' },
-        { key: 'hero_subtitle', value: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online.' },
+        { key: 'hero_subtitle', value: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!' },
         { key: 'stats_total_users', value: 50234 },
         { key: 'stats_total_payments', value: 1250000 },
         { key: 'stats_daily_updates', value: 12 },
@@ -161,8 +161,8 @@ function getTimeAgo(date) {
     return `há ${Math.floor(hours / 24)} d`;
 }
 
-// ========== ROTAS PÚBLICAS (Frontend) ==========
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+// ========== ROTAS PÚBLICAS ==========
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
@@ -173,21 +173,34 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Configurações públicas
+// Configurações do site
 app.get('/api/settings', async (req, res) => {
     try {
         await connectDB();
         const settings = await Setting.find();
         const obj = {};
         settings.forEach(s => obj[s.key] = s.value);
-        res.json({ success: true, data: obj });
+        
+        const defaultSettings = {
+            site_title: 'Hub Premium',
+            site_subtitle: 'Descubra plataformas que estão pagando agora',
+            hero_title: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>',
+            hero_subtitle: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!',
+            stats_total_users: 50234,
+            stats_total_payments: 1250000,
+            stats_daily_updates: 12,
+            whatsapp_group_link: 'https://chat.whatsapp.com/SEU_LINK',
+            countdown_hours: 24
+        };
+        
+        const finalSettings = { ...defaultSettings, ...obj };
+        res.json({ success: true, data: finalSettings });
     } catch (error) {
-        // Dados mock se não conectar
         res.json({ success: true, data: {
             site_title: 'Hub Premium',
             site_subtitle: 'Descubra plataformas que estão pagando agora',
             hero_title: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>',
-            hero_subtitle: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online.',
+            hero_subtitle: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!',
             stats_total_users: 50234,
             stats_total_payments: 1250000,
             stats_daily_updates: 12,
@@ -197,7 +210,7 @@ app.get('/api/settings', async (req, res) => {
     }
 });
 
-// Listar plataformas (com filtros)
+// Listar plataformas
 app.get('/api/platforms', async (req, res) => {
     try {
         await connectDB();
@@ -219,13 +232,7 @@ app.get('/api/platforms', async (req, res) => {
         const platforms = await Platform.find(query).sort({ hot: -1, order: 1, clicks: -1 });
         res.json({ success: true, data: platforms });
     } catch (error) {
-        // Dados mock se não conectar
-        res.json({ success: true, data: [
-            { _id: '1', name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523, image: null },
-            { _id: '2', name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892, image: null },
-            { _id: '3', name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234, image: null },
-            { _id: '4', name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100, image: null }
-        ]});
+        res.json({ success: true, data: [] });
     }
 });
 
@@ -237,25 +244,18 @@ app.get('/api/ranking', async (req, res) => {
         const ranking = platforms.map((p, i) => ({ position: i + 1, id: p._id, name: p.name, domain: p.domain, clicks: p.clicks || 0, link: p.link }));
         res.json({ success: true, data: ranking });
     } catch (error) {
-        res.json({ success: true, data: [
-            { name: "EE44", clicks: 1523, link: "https://ee44.com" },
-            { name: "33X", clicks: 2100, link: "https://33x.com" },
-            { name: "8EEE", clicks: 892, link: "https://8eee.com" }
-        ]});
+        res.json({ success: true, data: [] });
     }
 });
 
-// Depoimentos (apenas ativos)
+// Depoimentos (ativos)
 app.get('/api/testimonials', async (req, res) => {
     try {
         await connectDB();
         const testimonials = await Testimonial.find({ active: true }).sort({ order: 1, createdAt: -1 });
         res.json({ success: true, data: testimonials });
     } catch (error) {
-        res.json({ success: true, data: [
-            { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos!", rating: 5, active: true },
-            { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As plataformas são confiáveis.", rating: 5, active: true }
-        ]});
+        res.json({ success: true, data: [] });
     }
 });
 
@@ -274,11 +274,7 @@ app.get('/api/activity', async (req, res) => {
         }));
         res.json({ success: true, data: formatted });
     } catch (error) {
-        res.json({ success: true, data: [
-            { message: "João S. sacou R$ 350,00 da plataforma EE44", timeAgo: "agora mesmo" },
-            { message: "Maria F. sacou R$ 780,00 da plataforma 8EEE", timeAgo: "há 2 minutos" },
-            { message: "Nova plataforma adicionada: 988K.COM", timeAgo: "há 15 minutos" }
-        ]});
+        res.json({ success: true, data: [] });
     }
 });
 
@@ -311,8 +307,8 @@ app.get('/api/stats', async (req, res) => {
         });
     } catch (error) {
         res.json({ success: true, data: {
-            total: 6, pagando: 4, lancamento: 1, destaque: 1, hot: 4, totalClicks: 8765,
-            estimatedPayments: 438250, updatedToday: 2, newToday: 1,
+            total: 0, pagando: 0, lancamento: 0, destaque: 0, hot: 0, totalClicks: 0,
+            estimatedPayments: 0, updatedToday: 0, newToday: 0,
             stats_total_users: 50234, stats_total_payments: 1250000, stats_daily_updates: 12
         }});
     }
@@ -332,6 +328,8 @@ app.post('/api/leads', async (req, res) => {
 });
 
 // ========== ROTAS ADMIN (PROTEGIDAS) ==========
+
+// Configurações (admin)
 app.put('/api/settings', authenticate, async (req, res) => {
     try {
         await connectDB();
@@ -477,6 +475,11 @@ app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
     } catch (error) {
         res.status(500).json({ success: false });
     }
+});
+
+// Rota 404 para rotas não encontradas
+app.use('*', (req, res) => {
+    res.status(404).json({ success: false, message: 'Rota não encontrada' });
 });
 
 connectDB();
