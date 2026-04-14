@@ -15,7 +15,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'hub_plataformas_secret_key_2024';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
-// Modelos
+// ========== MODELOS ==========
 const platformSchema = new mongoose.Schema({
     name: { type: String, required: true, trim: true, uppercase: true },
     domain: { type: String, required: true, trim: true, uppercase: true },
@@ -30,21 +30,20 @@ const platformSchema = new mongoose.Schema({
     updatedAt: { type: Date, default: Date.now }
 });
 
+const testimonialSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    text: { type: String, required: true },
+    rating: { type: Number, default: 5, min: 1, max: 5 },
+    active: { type: Boolean, default: true },
+    order: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
+});
+
 const activitySchema = new mongoose.Schema({
     type: { type: String, enum: ['saque', 'nova_plataforma', 'topo_ranking', 'cadastro'], required: true },
     user: { type: String, required: true },
     platform: { type: String, default: null },
     amount: { type: Number, default: null },
-    createdAt: { type: Date, default: Date.now }
-});
-
-const testimonialSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    avatar: { type: String, default: null },
-    text: { type: String, required: true },
-    rating: { type: Number, default: 5, min: 1, max: 5 },
-    active: { type: Boolean, default: true },
-    order: { type: Number, default: 0 },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -61,8 +60,8 @@ const settingSchema = new mongoose.Schema({
 });
 
 const Platform = mongoose.models.Platform || mongoose.model('Platform', platformSchema);
-const Activity = mongoose.models.Activity || mongoose.model('Activity', activitySchema);
 const Testimonial = mongoose.models.Testimonial || mongoose.model('Testimonial', testimonialSchema);
+const Activity = mongoose.models.Activity || mongoose.model('Activity', activitySchema);
 const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
 const Setting = mongoose.models.Setting || mongoose.model('Setting', settingSchema);
 
@@ -115,7 +114,7 @@ function authenticate(req, res, next) {
     }
 }
 
-// Rotas Públicas
+// ========== ROTAS PÚBLICAS ==========
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.post('/api/login', async (req, res) => {
@@ -127,7 +126,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-app.get('/api/settings/public', async (req, res) => {
+app.get('/api/settings', async (req, res) => {
     try {
         await connectDB();
         const settings = await Setting.find();
@@ -154,20 +153,45 @@ app.get('/api/platforms', async (req, res) => {
             ];
         }
         const platforms = await Platform.find(query).sort({ hot: -1, order: 1, clicks: -1 });
-        res.json({ success: true, count: platforms.length, data: platforms });
+        res.json({ success: true, data: platforms });
     } catch (error) {
         res.status(500).json({ success: false });
     }
 });
 
-app.post('/api/platforms/:id/click', async (req, res) => {
+app.get('/api/testimonials', async (req, res) => {
     try {
         await connectDB();
-        const platform = await Platform.findById(req.params.id);
-        if (!platform) return res.status(404).json({ success: false });
-        platform.clicks = (platform.clicks || 0) + 1;
-        await platform.save();
-        res.json({ success: true, clicks: platform.clicks });
+        const testimonials = await Testimonial.find({ active: true }).sort({ order: 1, createdAt: -1 });
+        res.json({ success: true, data: testimonials });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+app.get('/api/activity', async (req, res) => {
+    try {
+        await connectDB();
+        const activities = await Activity.find().sort({ createdAt: -1 }).limit(10);
+        const formatted = activities.map(a => ({
+            ...a._doc,
+            timeAgo: getTimeAgo(a.createdAt),
+            message: a.type === 'saque' ? `${a.user} sacou R$ ${a.amount},00 da plataforma ${a.platform}` :
+                     a.type === 'nova_plataforma' ? `Nova plataforma adicionada: ${a.platform}` :
+                     a.type === 'topo_ranking' ? `${a.user} atingiu o topo do ranking` :
+                     `${a.user} se cadastrou no Hub Premium`
+        }));
+        res.json({ success: true, data: formatted });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+app.get('/api/leads', async (req, res) => {
+    try {
+        await connectDB();
+        const leads = await Lead.find().sort({ createdAt: -1 });
+        res.json({ success: true, data: leads });
     } catch (error) {
         res.status(500).json({ success: false });
     }
@@ -190,8 +214,7 @@ app.get('/api/stats', async (req, res) => {
         res.json({
             success: true,
             data: {
-                total, pagando, lancamento, destaque, hot,
-                totalClicks,
+                total, pagando, lancamento, destaque, hot, totalClicks,
                 estimatedPayments: totalClicks * 50,
                 updatedToday: await Platform.countDocuments({ updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
                 newToday: await Platform.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
@@ -209,91 +232,15 @@ app.get('/api/ranking', async (req, res) => {
     try {
         await connectDB();
         const platforms = await Platform.find().sort({ clicks: -1, hot: -1 }).limit(10);
-        const ranking = platforms.map((p, i) => ({
-            position: i + 1, id: p._id, name: p.name, domain: p.domain, type: p.type, hot: p.hot, clicks: p.clicks || 0, link: p.link
-        }));
+        const ranking = platforms.map((p, i) => ({ position: i + 1, id: p._id, name: p.name, domain: p.domain, clicks: p.clicks || 0, link: p.link }));
         res.json({ success: true, data: ranking });
     } catch (error) {
         res.status(500).json({ success: false });
     }
 });
 
-app.get('/api/activity', async (req, res) => {
-    try {
-        await connectDB();
-        let activities = await Activity.find().sort({ createdAt: -1 }).limit(10);
-        if (activities.length === 0) {
-            activities = [
-                { type: 'saque', user: 'João S.', amount: 350, platform: 'EE44', createdAt: new Date() },
-                { type: 'saque', user: 'Maria F.', amount: 780, platform: '8EEE', createdAt: new Date(Date.now() - 120000) },
-                { type: 'topo_ranking', user: 'Rafael L.', platform: '33X', createdAt: new Date(Date.now() - 300000) }
-            ];
-        }
-        const formatted = activities.map(a => ({
-            ...a._doc,
-            timeAgo: getTimeAgo(a.createdAt),
-            message: a.type === 'saque' ? `${a.user} sacou R$ ${a.amount},00 da plataforma ${a.platform}` :
-                     a.type === 'nova_plataforma' ? `Nova plataforma adicionada: ${a.platform}` :
-                     a.type === 'topo_ranking' ? `${a.user} atingiu o topo do ranking` :
-                     `${a.user} se cadastrou no Hub Premium`
-        }));
-        res.json({ success: true, data: formatted });
-    } catch (error) {
-        res.status(500).json({ success: false });
-    }
-});
-
-app.get('/api/testimonials', async (req, res) => {
-    try {
-        await connectDB();
-        const testimonials = await Testimonial.find({ active: true }).sort({ order: 1, createdAt: -1 }).limit(6);
-        res.json({ success: true, data: testimonials });
-    } catch (error) {
-        res.status(500).json({ success: false });
-    }
-});
-
-app.post('/api/leads', async (req, res) => {
-    try {
-        await connectDB();
-        const { whatsapp, name } = req.body;
-        if (!whatsapp || whatsapp.length < 10) return res.status(400).json({ success: false });
-        await Lead.findOneAndUpdate({ whatsapp }, { whatsapp, name }, { upsert: true });
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ success: false });
-    }
-});
-
-// Rotas Admin
-app.get('/api/admin/stats/full', authenticate, async (req, res) => {
-    try {
-        await connectDB();
-        const [platforms, activities, leads, testimonials] = await Promise.all([
-            Platform.countDocuments(),
-            Activity.countDocuments(),
-            Lead.countDocuments(),
-            Testimonial.countDocuments()
-        ]);
-        res.json({ success: true, data: { platforms, activities, leads, testimonials } });
-    } catch (error) {
-        res.status(500).json({ success: false });
-    }
-});
-
-app.get('/api/admin/settings', authenticate, async (req, res) => {
-    try {
-        await connectDB();
-        const settings = await Setting.find();
-        const obj = {};
-        settings.forEach(s => obj[s.key] = s.value);
-        res.json({ success: true, data: obj });
-    } catch (error) {
-        res.status(500).json({ success: false });
-    }
-});
-
-app.put('/api/admin/settings', authenticate, async (req, res) => {
+// ========== ROTAS ADMIN (PROTEGIDAS) ==========
+app.put('/api/settings', authenticate, async (req, res) => {
     try {
         await connectDB();
         for (const [key, value] of Object.entries(req.body)) {
@@ -305,13 +252,7 @@ app.put('/api/admin/settings', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/admin/platforms', authenticate, async (req, res) => {
-    await connectDB();
-    const platforms = await Platform.find().sort({ order: 1, createdAt: -1 });
-    res.json({ success: true, data: platforms });
-});
-
-app.post('/api/admin/platforms', authenticate, async (req, res) => {
+app.post('/api/platforms', authenticate, async (req, res) => {
     try {
         await connectDB();
         const platform = await Platform.create(req.body);
@@ -322,7 +263,7 @@ app.post('/api/admin/platforms', authenticate, async (req, res) => {
     }
 });
 
-app.put('/api/admin/platforms/:id', authenticate, async (req, res) => {
+app.put('/api/platforms/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         const platform = await Platform.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -332,7 +273,7 @@ app.put('/api/admin/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/admin/platforms/:id', authenticate, async (req, res) => {
+app.delete('/api/platforms/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         await Platform.findByIdAndDelete(req.params.id);
@@ -342,13 +283,7 @@ app.delete('/api/admin/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/admin/testimonials', authenticate, async (req, res) => {
-    await connectDB();
-    const testimonials = await Testimonial.find().sort({ order: 1, createdAt: -1 });
-    res.json({ success: true, data: testimonials });
-});
-
-app.post('/api/admin/testimonials', authenticate, async (req, res) => {
+app.post('/api/testimonials', authenticate, async (req, res) => {
     try {
         await connectDB();
         const testimonial = await Testimonial.create(req.body);
@@ -358,7 +293,7 @@ app.post('/api/admin/testimonials', authenticate, async (req, res) => {
     }
 });
 
-app.put('/api/admin/testimonials/:id', authenticate, async (req, res) => {
+app.put('/api/testimonials/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         const testimonial = await Testimonial.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -368,7 +303,7 @@ app.put('/api/admin/testimonials/:id', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/admin/testimonials/:id', authenticate, async (req, res) => {
+app.delete('/api/testimonials/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         await Testimonial.findByIdAndDelete(req.params.id);
@@ -378,7 +313,7 @@ app.delete('/api/admin/testimonials/:id', authenticate, async (req, res) => {
     }
 });
 
-app.post('/api/admin/activities', authenticate, async (req, res) => {
+app.post('/api/activities', authenticate, async (req, res) => {
     try {
         await connectDB();
         const activity = await Activity.create(req.body);
@@ -388,7 +323,7 @@ app.post('/api/admin/activities', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/admin/activities/:id', authenticate, async (req, res) => {
+app.delete('/api/activities/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         await Activity.findByIdAndDelete(req.params.id);
@@ -398,13 +333,7 @@ app.delete('/api/admin/activities/:id', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/admin/leads', authenticate, async (req, res) => {
-    await connectDB();
-    const leads = await Lead.find().sort({ createdAt: -1 });
-    res.json({ success: true, data: leads, count: leads.length });
-});
-
-app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
+app.delete('/api/leads/:id', authenticate, async (req, res) => {
     try {
         await connectDB();
         await Lead.findByIdAndDelete(req.params.id);
