@@ -68,7 +68,6 @@ const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
 const Setting = mongoose.models.Setting || mongoose.model('Setting', settingSchema);
 
 let isConnected = false;
-let seedExecuted = false;
 
 async function connectDB() {
     if (isConnected) return;
@@ -80,15 +79,15 @@ async function connectDB() {
         await mongoose.connect(MONGODB_URI);
         isConnected = true;
         console.log('✅ MongoDB Atlas Conectado');
-        await initializeDefaultSettings();
-        // NUNCA executar seed automaticamente
-        // O seed só será executado se chamado manualmente via API
+        // NUNCA resetar configurações - apenas criar as que não existem
+        await ensureSettingsExist();
     } catch (error) {
         console.error('❌ Erro ao conectar MongoDB:', error.message);
     }
 }
 
-async function initializeDefaultSettings() {
+// Criar apenas configurações que NÃO EXISTEM (nunca sobrescreve)
+async function ensureSettingsExist() {
     const defaults = [
         { key: 'site_title', value: 'Hub Premium' },
         { key: 'site_subtitle', value: 'Descubra plataformas que estão pagando agora' },
@@ -106,19 +105,25 @@ async function initializeDefaultSettings() {
         { key: 'contact_email', value: 'contato@hubpremium.com' },
         { key: 'contact_phone', value: '(11) 99999-9999' },
         { key: 'contact_whatsapp', value: '5511999999999' },
-        { key: 'social_instagram', value: 'https://instagram.com/hubpremium' },
-        { key: 'social_telegram', value: 'https://t.me/hubpremium' },
-        { key: 'social_youtube', value: 'https://youtube.com/@hubpremium' },
-        { key: 'social_tiktok', value: 'https://tiktok.com/@hubpremium' },
+        { key: 'social_instagram', value: '#' },
+        { key: 'social_telegram', value: '#' },
+        { key: 'social_youtube', value: '#' },
+        { key: 'social_tiktok', value: '#' },
         { key: 'whatsapp_group_link', value: 'https://chat.whatsapp.com/SEU_LINK' },
         { key: 'whatsapp_group_text', value: 'Grupo VIP' },
         { key: 'countdown_hours', value: 24 },
         { key: 'footer_disclaimer', value: 'Não somos afiliados às plataformas. Apenas fornecemos informações.' }
     ];
+    
     for (const setting of defaults) {
-        await Setting.findOneAndUpdate({ key: setting.key }, setting, { upsert: true });
+        // Usa findOneAndUpdate com upsert, mas NUNCA sobrescreve se já existir
+        const existing = await Setting.findOne({ key: setting.key });
+        if (!existing) {
+            await Setting.create(setting);
+            console.log(`✅ Configuração criada: ${setting.key}`);
+        }
     }
-    console.log('✅ Configurações padrão inicializadas');
+    console.log('✅ Verificação de configurações concluída');
 }
 
 // Função para resetar acessos diários (executada uma vez por dia)
@@ -198,6 +203,7 @@ app.get('/api/settings', async (req, res) => {
         const obj = {};
         settings.forEach(s => obj[s.key] = s.value);
         
+        // Valores padrão para fallback (se alguma configuração não existir)
         const defaultSettings = {
             site_title: 'Hub Premium',
             site_subtitle: 'Descubra plataformas que estão pagando agora',
@@ -225,35 +231,11 @@ app.get('/api/settings', async (req, res) => {
             footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
         };
         
+        // Mesclar valores existentes com padrões (valores existentes têm prioridade)
         const finalSettings = { ...defaultSettings, ...obj };
         res.json({ success: true, data: finalSettings });
     } catch (error) {
-        res.json({ success: true, data: {
-            site_title: 'Hub Premium',
-            site_subtitle: 'Descubra plataformas que estão pagando agora',
-            site_logo_text: 'HubPremium',
-            site_footer_text: 'O maior hub de plataformas que pagam do Brasil.',
-            hero_title: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>',
-            hero_subtitle: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!',
-            hero_badge_text: '+100 Plataformas Verificadas',
-            stats_total_users: 50234,
-            stats_total_payments: 1250000,
-            stats_daily_updates: 12,
-            stats_payment_label: 'em pagamentos',
-            stats_users_label: 'usuários ativos',
-            stats_updates_label: 'atualizações hoje',
-            contact_email: 'contato@hubpremium.com',
-            contact_phone: '(11) 99999-9999',
-            contact_whatsapp: '5511999999999',
-            social_instagram: '#',
-            social_telegram: '#',
-            social_youtube: '#',
-            social_tiktok: '#',
-            whatsapp_group_link: 'https://chat.whatsapp.com/SEU_LINK',
-            whatsapp_group_text: 'Grupo VIP',
-            countdown_hours: 24,
-            footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
-        }});
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -278,7 +260,7 @@ app.get('/api/platforms', async (req, res) => {
         const platforms = await Platform.find(query).sort({ hot: -1, order: 1, clicks: -1 });
         res.json({ success: true, data: platforms });
     } catch (error) {
-        res.json({ success: true, data: [] });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -311,7 +293,7 @@ app.get('/api/ranking', async (req, res) => {
         }));
         res.json({ success: true, data: ranking });
     } catch (error) {
-        res.json({ success: true, data: [] });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -321,7 +303,7 @@ app.get('/api/testimonials', async (req, res) => {
         const testimonials = await Testimonial.find({ active: true }).sort({ order: 1, createdAt: -1 });
         res.json({ success: true, data: testimonials });
     } catch (error) {
-        res.json({ success: true, data: [] });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -339,7 +321,7 @@ app.get('/api/activity', async (req, res) => {
         }));
         res.json({ success: true, data: formatted });
     } catch (error) {
-        res.json({ success: true, data: [] });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -373,11 +355,7 @@ app.get('/api/stats', async (req, res) => {
             }
         });
     } catch (error) {
-        res.json({ success: true, data: {
-            total: 0, pagando: 0, lancamento: 0, destaque: 0, hot: 0, totalClicks: 0,
-            estimatedPayments: 1250000, updatedToday: 0, newToday: 0,
-            stats_total_users: 50234, stats_total_payments: 1250000, stats_daily_updates: 12
-        }});
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -389,7 +367,7 @@ app.post('/api/leads', async (req, res) => {
         await Lead.findOneAndUpdate({ whatsapp }, { whatsapp, name }, { upsert: true });
         res.json({ success: true });
     } catch (error) {
-        res.json({ success: true });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -398,13 +376,11 @@ app.post('/api/seed', authenticate, async (req, res) => {
     try {
         await connectDB();
         
-        // Verificar se já existem plataformas
         const platformCount = await Platform.countDocuments();
         if (platformCount > 0) {
             return res.json({ success: false, message: 'Banco já possui dados. Seed não executado.' });
         }
         
-        // Inserir dados iniciais
         const randomDailyClicks = () => Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
         
         await Platform.insertMany([
@@ -443,7 +419,7 @@ app.put('/api/settings', authenticate, async (req, res) => {
         }
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -465,7 +441,7 @@ app.put('/api/platforms/:id', authenticate, async (req, res) => {
         const platform = await Platform.findByIdAndUpdate(req.params.id, req.body, { new: true });
         res.json({ success: true, data: platform });
     } catch (error) {
-        res.status(400).json({ success: false });
+        res.status(400).json({ success: false, message: error.message });
     }
 });
 
@@ -475,7 +451,7 @@ app.delete('/api/platforms/:id', authenticate, async (req, res) => {
         await Platform.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -485,7 +461,7 @@ app.get('/api/admin/testimonials', authenticate, async (req, res) => {
         const testimonials = await Testimonial.find().sort({ createdAt: -1 });
         res.json({ success: true, data: testimonials });
     } catch (error) {
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -495,7 +471,7 @@ app.post('/api/admin/testimonials', authenticate, async (req, res) => {
         const testimonial = await Testimonial.create(req.body);
         res.json({ success: true, data: testimonial });
     } catch (error) {
-        res.status(400).json({ success: false });
+        res.status(400).json({ success: false, message: error.message });
     }
 });
 
@@ -505,7 +481,7 @@ app.put('/api/admin/testimonials/:id', authenticate, async (req, res) => {
         const testimonial = await Testimonial.findByIdAndUpdate(req.params.id, req.body, { new: true });
         res.json({ success: true, data: testimonial });
     } catch (error) {
-        res.status(400).json({ success: false });
+        res.status(400).json({ success: false, message: error.message });
     }
 });
 
@@ -515,7 +491,7 @@ app.delete('/api/admin/testimonials/:id', authenticate, async (req, res) => {
         await Testimonial.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -525,7 +501,7 @@ app.get('/api/admin/activities', authenticate, async (req, res) => {
         const activities = await Activity.find().sort({ createdAt: -1 });
         res.json({ success: true, data: activities });
     } catch (error) {
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -535,7 +511,7 @@ app.post('/api/admin/activities', authenticate, async (req, res) => {
         const activity = await Activity.create(req.body);
         res.json({ success: true, data: activity });
     } catch (error) {
-        res.status(400).json({ success: false });
+        res.status(400).json({ success: false, message: error.message });
     }
 });
 
@@ -545,7 +521,7 @@ app.put('/api/admin/activities/:id', authenticate, async (req, res) => {
         const activity = await Activity.findByIdAndUpdate(req.params.id, req.body, { new: true });
         res.json({ success: true, data: activity });
     } catch (error) {
-        res.status(400).json({ success: false });
+        res.status(400).json({ success: false, message: error.message });
     }
 });
 
@@ -555,7 +531,7 @@ app.delete('/api/admin/activities/:id', authenticate, async (req, res) => {
         await Activity.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -565,7 +541,7 @@ app.get('/api/admin/leads', authenticate, async (req, res) => {
         const leads = await Lead.find().sort({ createdAt: -1 });
         res.json({ success: true, data: leads });
     } catch (error) {
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -575,7 +551,7 @@ app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
         await Lead.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ success: false });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
