@@ -15,9 +15,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'hub_plataformas_secret_key_2024';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
-// Flag para controlar se o seed já foi executado
-let seedExecuted = false;
-
 // ========== MODELOS ==========
 const platformSchema = new mongoose.Schema({
     name: { type: String, required: true, trim: true, uppercase: true },
@@ -28,8 +25,8 @@ const platformSchema = new mongoose.Schema({
     image: { type: String, default: null },
     link: { type: String, required: true, trim: true },
     clicks: { type: Number, default: 0 },
-    dailyClicks: { type: Number, default: 0 }, // Acessos diários (reset diário)
-    lastDailyReset: { type: Date, default: Date.now }, // Último reset dos acessos diários
+    dailyClicks: { type: Number, default: 0 },
+    lastDailyReset: { type: Date, default: Date.now },
     order: { type: Number, default: 0 },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
@@ -71,11 +68,12 @@ const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
 const Setting = mongoose.models.Setting || mongoose.model('Setting', settingSchema);
 
 let isConnected = false;
+let seedExecuted = false;
 
 async function connectDB() {
     if (isConnected) return;
     if (!MONGODB_URI) {
-        console.log('⚠️ MONGODB_URI não definida, usando dados mock');
+        console.log('⚠️ MONGODB_URI não definida');
         return;
     }
     try {
@@ -83,61 +81,11 @@ async function connectDB() {
         isConnected = true;
         console.log('✅ MongoDB Atlas Conectado');
         await initializeDefaultSettings();
-        await seedInitialDataOnce();
-        // Iniciar reset diário dos acessos
-        scheduleDailyReset();
+        // NUNCA executar seed automaticamente
+        // O seed só será executado se chamado manualmente via API
     } catch (error) {
         console.error('❌ Erro ao conectar MongoDB:', error.message);
     }
-}
-
-// Função para resetar acessos diários (executada uma vez por dia)
-async function resetDailyClicks() {
-    try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        // Gerar novos acessos aleatórios entre 1000 e 10000 para cada plataforma
-        const platforms = await Platform.find();
-        for (const platform of platforms) {
-            // Gerar valor aleatório entre 1000 e 10000
-            const newDailyClicks = Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
-            platform.dailyClicks = newDailyClicks;
-            platform.lastDailyReset = new Date();
-            await platform.save();
-        }
-        
-        console.log(`✅ Acessos diários resetados para ${platforms.length} plataformas às ${new Date().toLocaleString()}`);
-        
-        // Registrar atividade de reset
-        await Activity.create({
-            type: 'topo_ranking',
-            user: 'Sistema',
-            platform: 'Ranking',
-            amount: null,
-            createdAt: new Date()
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro ao resetar acessos diários:', error);
-    }
-}
-
-// Agendar reset diário (à meia-noite)
-function scheduleDailyReset() {
-    const now = new Date();
-    const night = new Date(now);
-    night.setHours(24, 0, 0, 0); // Meia-noite de hoje para amanhã
-    
-    const msUntilMidnight = night.getTime() - now.getTime();
-    
-    setTimeout(() => {
-        resetDailyClicks();
-        // Depois do primeiro reset, agendar para a cada 24 horas
-        setInterval(resetDailyClicks, 24 * 60 * 60 * 1000);
-    }, msUntilMidnight);
-    
-    console.log(`⏰ Reset diário agendado para ${night.toLocaleString()}`);
 }
 
 async function initializeDefaultSettings() {
@@ -173,57 +121,35 @@ async function initializeDefaultSettings() {
     console.log('✅ Configurações padrão inicializadas');
 }
 
-// Seed executado apenas UMA VEZ e APENAS se o banco estiver VAZIO
-async function seedInitialDataOnce() {
-    // Verificar se o seed já foi executado
-    const seedFlag = await Setting.findOne({ key: 'seed_executed' });
-    if (seedFlag && seedFlag.value === true) {
-        console.log('✅ Seed já foi executado anteriormente, pulando...');
-        return;
+// Função para resetar acessos diários (executada uma vez por dia)
+async function resetDailyClicks() {
+    try {
+        const platforms = await Platform.find();
+        for (const platform of platforms) {
+            const newDailyClicks = Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
+            platform.dailyClicks = newDailyClicks;
+            platform.lastDailyReset = new Date();
+            await platform.save();
+        }
+        console.log(`✅ Acessos diários resetados para ${platforms.length} plataformas`);
+    } catch (error) {
+        console.error('❌ Erro ao resetar acessos diários:', error);
     }
+}
+
+// Agendar reset diário (à meia-noite)
+function scheduleDailyReset() {
+    const now = new Date();
+    const night = new Date(now);
+    night.setHours(24, 0, 0, 0);
+    const msUntilMidnight = night.getTime() - now.getTime();
     
-    // Verificar se já existem plataformas
-    const platformCount = await Platform.countDocuments();
-    if (platformCount > 0) {
-        console.log(`✅ Banco já possui ${platformCount} plataformas, pulando seed...`);
-        await Setting.findOneAndUpdate({ key: 'seed_executed' }, { key: 'seed_executed', value: true }, { upsert: true });
-        return;
-    }
+    setTimeout(() => {
+        resetDailyClicks();
+        setInterval(resetDailyClicks, 24 * 60 * 60 * 1000);
+    }, msUntilMidnight);
     
-    console.log('📦 Banco vazio, inserindo dados iniciais...');
-    
-    // Gerar acessos diários aleatórios
-    const randomDailyClicks = () => Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
-    
-    // Inserir plataformas iniciais
-    await Platform.insertMany([
-        { name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523, dailyClicks: randomDailyClicks() },
-        { name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892, dailyClicks: randomDailyClicks() },
-        { name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234, dailyClicks: randomDailyClicks() },
-        { name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100, dailyClicks: randomDailyClicks() },
-        { name: "BB22", domain: "BB22.COM", type: "pagando", badge: "💵 PAGANDO AGORA", hot: true, link: "https://bb22.com", clicks: 3456, dailyClicks: randomDailyClicks() },
-        { name: "68D", domain: "68D.COM", type: "pagando", badge: "💸 PAGAMENTO RÁPIDO", hot: true, link: "https://68d.com", clicks: 567, dailyClicks: randomDailyClicks() }
-    ]);
-    
-    // Inserir depoimentos iniciais
-    await Testimonial.insertMany([
-        { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos! As plataformas realmente pagam.", rating: 5, active: true },
-        { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As atualizações diárias são muito úteis e as plataformas são confiáveis.", rating: 5, active: true },
-        { name: "Rafael Oliveira", text: "Já testei várias plataformas e as que estão aqui realmente funcionam. O grupo VIP no WhatsApp é sensacional!", rating: 4, active: true }
-    ]);
-    
-    // Inserir atividades iniciais
-    await Activity.insertMany([
-        { type: "saque", user: "João S.", platform: "EE44", amount: 350, createdAt: new Date() },
-        { type: "saque", user: "Maria F.", platform: "8EEE", amount: 780, createdAt: new Date(Date.now() - 120000) },
-        { type: "topo_ranking", user: "Rafael L.", platform: "33X", createdAt: new Date(Date.now() - 300000) },
-        { type: "nova_plataforma", user: "Admin", platform: "988K.COM", createdAt: new Date(Date.now() - 900000) }
-    ]);
-    
-    // Marcar seed como executado
-    await Setting.findOneAndUpdate({ key: 'seed_executed' }, { key: 'seed_executed', value: true }, { upsert: true });
-    
-    console.log('✅ Dados iniciais inseridos com sucesso!');
+    console.log(`⏰ Reset diário agendado para ${night.toLocaleString()}`);
 }
 
 function generateToken(username) {
@@ -374,7 +300,6 @@ app.post('/api/platforms/:id/click', async (req, res) => {
 app.get('/api/ranking', async (req, res) => {
     try {
         await connectDB();
-        // Buscar plataformas ordenadas por acessos diários
         const platforms = await Platform.find().sort({ dailyClicks: -1, hot: -1 }).limit(10);
         const ranking = platforms.map((p, i) => ({
             position: i + 1,
@@ -382,19 +307,11 @@ app.get('/api/ranking', async (req, res) => {
             name: p.name,
             domain: p.domain,
             link: p.link,
-            dailyClicks: p.dailyClicks || Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000
+            dailyClicks: p.dailyClicks || 1000
         }));
         res.json({ success: true, data: ranking });
     } catch (error) {
-        const mockPlatforms = [
-            { name: "EE44", domain: "EE44.COM", link: "https://ee44.com", dailyClicks: 8452 },
-            { name: "33X", domain: "33X.COM", link: "https://33x.com", dailyClicks: 7231 },
-            { name: "8EEE", domain: "8EEE.COM", link: "https://8eee.com", dailyClicks: 5678 },
-            { name: "BB22", domain: "BB22.COM", link: "https://bb22.com", dailyClicks: 4321 },
-            { name: "68D", domain: "68D.COM", link: "https://68d.com", dailyClicks: 3210 }
-        ];
-        const ranking = mockPlatforms.map((p, i) => ({ ...p, position: i + 1 }));
-        res.json({ success: true, data: ranking });
+        res.json({ success: true, data: [] });
     }
 });
 
@@ -476,6 +393,47 @@ app.post('/api/leads', async (req, res) => {
     }
 });
 
+// ========== ROTA DE SEED MANUAL (APENAS PARA PRIMEIRA INSTALAÇÃO) ==========
+app.post('/api/seed', authenticate, async (req, res) => {
+    try {
+        await connectDB();
+        
+        // Verificar se já existem plataformas
+        const platformCount = await Platform.countDocuments();
+        if (platformCount > 0) {
+            return res.json({ success: false, message: 'Banco já possui dados. Seed não executado.' });
+        }
+        
+        // Inserir dados iniciais
+        const randomDailyClicks = () => Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
+        
+        await Platform.insertMany([
+            { name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523, dailyClicks: randomDailyClicks() },
+            { name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892, dailyClicks: randomDailyClicks() },
+            { name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234, dailyClicks: randomDailyClicks() },
+            { name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100, dailyClicks: randomDailyClicks() },
+            { name: "BB22", domain: "BB22.COM", type: "pagando", badge: "💵 PAGANDO AGORA", hot: true, link: "https://bb22.com", clicks: 3456, dailyClicks: randomDailyClicks() },
+            { name: "68D", domain: "68D.COM", type: "pagando", badge: "💸 PAGAMENTO RÁPIDO", hot: true, link: "https://68d.com", clicks: 567, dailyClicks: randomDailyClicks() }
+        ]);
+        
+        await Testimonial.insertMany([
+            { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos!", rating: 5, active: true },
+            { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As plataformas são confiáveis.", rating: 5, active: true },
+            { name: "Rafael Oliveira", text: "Já testei várias plataformas e as que estão aqui realmente funcionam!", rating: 4, active: true }
+        ]);
+        
+        await Activity.insertMany([
+            { type: "saque", user: "João S.", platform: "EE44", amount: 350, createdAt: new Date() },
+            { type: "saque", user: "Maria F.", platform: "8EEE", amount: 780, createdAt: new Date(Date.now() - 120000) },
+            { type: "topo_ranking", user: "Rafael L.", platform: "33X", createdAt: new Date(Date.now() - 300000) }
+        ]);
+        
+        res.json({ success: true, message: 'Seed executado com sucesso!' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // ========== ROTAS ADMIN (PROTEGIDAS) ==========
 app.put('/api/settings', authenticate, async (req, res) => {
     try {
@@ -492,7 +450,6 @@ app.put('/api/settings', authenticate, async (req, res) => {
 app.post('/api/platforms', authenticate, async (req, res) => {
     try {
         await connectDB();
-        // Gerar acessos diários aleatórios para nova plataforma
         const dailyClicks = Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
         const platform = await Platform.create({ ...req.body, dailyClicks });
         await Activity.create({ type: 'nova_plataforma', user: 'Admin', platform: platform.name });
@@ -621,6 +578,13 @@ app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
         res.status(500).json({ success: false });
     }
 });
+
+// Iniciar reset diário após conectar
+setTimeout(() => {
+    if (isConnected) {
+        scheduleDailyReset();
+    }
+}, 5000);
 
 app.use('*', (req, res) => {
     res.status(404).json({ success: false, message: 'Rota não encontrada' });
