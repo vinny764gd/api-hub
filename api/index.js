@@ -78,7 +78,7 @@ async function connectDB() {
         isConnected = true;
         console.log('✅ MongoDB Atlas Conectado');
         await initializeDefaultSettings();
-        await seedInitialData();
+        // REMOVIDO o seedInitialData() para não resetar os dados
     } catch (error) {
         console.error('❌ Erro ao conectar MongoDB:', error.message);
     }
@@ -116,38 +116,7 @@ async function initializeDefaultSettings() {
     }
 }
 
-async function seedInitialData() {
-    const platformCount = await Platform.countDocuments();
-    if (platformCount === 0) {
-        await Platform.insertMany([
-            { name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523 },
-            { name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892 },
-            { name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234 },
-            { name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100 },
-            { name: "BB22", domain: "BB22.COM", type: "pagando", badge: "💵 PAGANDO AGORA", hot: true, link: "https://bb22.com", clicks: 3456 },
-            { name: "68D", domain: "68D.COM", type: "pagando", badge: "💸 PAGAMENTO RÁPIDO", hot: true, link: "https://68d.com", clicks: 567 }
-        ]);
-    }
-    
-    const testimonialCount = await Testimonial.countDocuments();
-    if (testimonialCount === 0) {
-        await Testimonial.insertMany([
-            { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos! As plataformas realmente pagam.", rating: 5, active: true },
-            { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As atualizações diárias são muito úteis e as plataformas são confiáveis.", rating: 5, active: true },
-            { name: "Rafael Oliveira", text: "Já testei várias plataformas e as que estão aqui realmente funcionam. O grupo VIP no WhatsApp é sensacional!", rating: 4, active: true }
-        ]);
-    }
-    
-    const activityCount = await Activity.countDocuments();
-    if (activityCount === 0) {
-        await Activity.insertMany([
-            { type: "saque", user: "João S.", platform: "EE44", amount: 350, createdAt: new Date() },
-            { type: "saque", user: "Maria F.", platform: "8EEE", amount: 780, createdAt: new Date(Date.now() - 120000) },
-            { type: "topo_ranking", user: "Rafael L.", platform: "33X", createdAt: new Date(Date.now() - 300000) },
-            { type: "nova_plataforma", user: "Admin", platform: "988K.COM", createdAt: new Date(Date.now() - 900000) }
-        ]);
-    }
-}
+// Função de seed removida - NÃO RESETA MAIS O BANCO
 
 function generateToken(username) {
     return jwt.sign({ username, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
