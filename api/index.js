@@ -15,6 +15,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'hub_plataformas_secret_key_2024';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
+// Flag para controlar se o seed já foi executado
+let seedExecuted = false;
+
 // ========== MODELOS ==========
 const platformSchema = new mongoose.Schema({
     name: { type: String, required: true, trim: true, uppercase: true },
@@ -78,7 +81,8 @@ async function connectDB() {
         isConnected = true;
         console.log('✅ MongoDB Atlas Conectado');
         await initializeDefaultSettings();
-        // REMOVIDO o seedInitialData() para não resetar os dados
+        // Seed executado apenas UMA VEZ e apenas se o banco estiver vazio
+        await seedInitialDataOnce();
     } catch (error) {
         console.error('❌ Erro ao conectar MongoDB:', error.message);
     }
@@ -114,9 +118,59 @@ async function initializeDefaultSettings() {
     for (const setting of defaults) {
         await Setting.findOneAndUpdate({ key: setting.key }, setting, { upsert: true });
     }
+    console.log('✅ Configurações padrão inicializadas');
 }
 
-// Função de seed removida - NÃO RESETA MAIS O BANCO
+// Seed executado apenas UMA VEZ e APENAS se o banco estiver VAZIO
+async function seedInitialDataOnce() {
+    // Verificar se o seed já foi executado
+    const seedFlag = await Setting.findOne({ key: 'seed_executed' });
+    if (seedFlag && seedFlag.value === true) {
+        console.log('✅ Seed já foi executado anteriormente, pulando...');
+        return;
+    }
+    
+    // Verificar se já existem plataformas
+    const platformCount = await Platform.countDocuments();
+    if (platformCount > 0) {
+        console.log(`✅ Banco já possui ${platformCount} plataformas, pulando seed...`);
+        // Marcar seed como executado
+        await Setting.findOneAndUpdate({ key: 'seed_executed' }, { key: 'seed_executed', value: true }, { upsert: true });
+        return;
+    }
+    
+    console.log('📦 Banco vazio, inserindo dados iniciais...');
+    
+    // Inserir plataformas iniciais
+    await Platform.insertMany([
+        { name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523 },
+        { name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892 },
+        { name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234 },
+        { name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100 },
+        { name: "BB22", domain: "BB22.COM", type: "pagando", badge: "💵 PAGANDO AGORA", hot: true, link: "https://bb22.com", clicks: 3456 },
+        { name: "68D", domain: "68D.COM", type: "pagando", badge: "💸 PAGAMENTO RÁPIDO", hot: true, link: "https://68d.com", clicks: 567 }
+    ]);
+    
+    // Inserir depoimentos iniciais
+    await Testimonial.insertMany([
+        { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos! As plataformas realmente pagam.", rating: 5, active: true },
+        { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As atualizações diárias são muito úteis e as plataformas são confiáveis.", rating: 5, active: true },
+        { name: "Rafael Oliveira", text: "Já testei várias plataformas e as que estão aqui realmente funcionam. O grupo VIP no WhatsApp é sensacional!", rating: 4, active: true }
+    ]);
+    
+    // Inserir atividades iniciais
+    await Activity.insertMany([
+        { type: "saque", user: "João S.", platform: "EE44", amount: 350, createdAt: new Date() },
+        { type: "saque", user: "Maria F.", platform: "8EEE", amount: 780, createdAt: new Date(Date.now() - 120000) },
+        { type: "topo_ranking", user: "Rafael L.", platform: "33X", createdAt: new Date(Date.now() - 300000) },
+        { type: "nova_plataforma", user: "Admin", platform: "988K.COM", createdAt: new Date(Date.now() - 900000) }
+    ]);
+    
+    // Marcar seed como executado
+    await Setting.findOneAndUpdate({ key: 'seed_executed' }, { key: 'seed_executed', value: true }, { upsert: true });
+    
+    console.log('✅ Dados iniciais inseridos com sucesso!');
+}
 
 function generateToken(username) {
     return jwt.sign({ username, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
