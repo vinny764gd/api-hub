@@ -124,12 +124,11 @@ async function ensureSettingsExist() {
     console.log('✅ Verificação de configurações concluída');
 }
 
-// Função para resetar acessos diários (valores altos entre 5000 e 50000)
+// Função para resetar acessos diários
 async function resetDailyClicks() {
     try {
         const platforms = await Platform.find();
         for (const platform of platforms) {
-            // Valores mais altos e variados para o ranking
             const newDailyClicks = Math.floor(Math.random() * (50000 - 5000 + 1)) + 5000;
             platform.dailyClicks = newDailyClicks;
             platform.lastDailyReset = new Date();
@@ -202,7 +201,6 @@ app.get('/api/settings', async (req, res) => {
         const obj = {};
         settings.forEach(s => obj[s.key] = s.value);
         
-        // Valores padrão para fallback
         const defaultSettings = {
             site_title: 'Hub Premium',
             site_subtitle: 'Descubra plataformas que estão pagando agora',
