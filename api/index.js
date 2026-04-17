@@ -79,14 +79,13 @@ async function connectDB() {
         await mongoose.connect(MONGODB_URI);
         isConnected = true;
         console.log('✅ MongoDB Atlas Conectado');
-        // NUNCA resetar configurações - apenas criar as que não existem
         await ensureSettingsExist();
     } catch (error) {
         console.error('❌ Erro ao conectar MongoDB:', error.message);
     }
 }
 
-// Criar apenas configurações que NÃO EXISTEM (nunca sobrescreve)
+// Criar apenas configurações que NÃO EXISTEM
 async function ensureSettingsExist() {
     const defaults = [
         { key: 'site_title', value: 'Hub Premium' },
@@ -116,7 +115,6 @@ async function ensureSettingsExist() {
     ];
     
     for (const setting of defaults) {
-        // Usa findOneAndUpdate com upsert, mas NUNCA sobrescreve se já existir
         const existing = await Setting.findOne({ key: setting.key });
         if (!existing) {
             await Setting.create(setting);
@@ -126,12 +124,13 @@ async function ensureSettingsExist() {
     console.log('✅ Verificação de configurações concluída');
 }
 
-// Função para resetar acessos diários (executada uma vez por dia)
+// Função para resetar acessos diários (valores altos entre 5000 e 50000)
 async function resetDailyClicks() {
     try {
         const platforms = await Platform.find();
         for (const platform of platforms) {
-            const newDailyClicks = Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
+            // Valores mais altos e variados para o ranking
+            const newDailyClicks = Math.floor(Math.random() * (50000 - 5000 + 1)) + 5000;
             platform.dailyClicks = newDailyClicks;
             platform.lastDailyReset = new Date();
             await platform.save();
@@ -203,7 +202,7 @@ app.get('/api/settings', async (req, res) => {
         const obj = {};
         settings.forEach(s => obj[s.key] = s.value);
         
-        // Valores padrão para fallback (se alguma configuração não existir)
+        // Valores padrão para fallback
         const defaultSettings = {
             site_title: 'Hub Premium',
             site_subtitle: 'Descubra plataformas que estão pagando agora',
@@ -231,7 +230,6 @@ app.get('/api/settings', async (req, res) => {
             footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
         };
         
-        // Mesclar valores existentes com padrões (valores existentes têm prioridade)
         const finalSettings = { ...defaultSettings, ...obj };
         res.json({ success: true, data: finalSettings });
     } catch (error) {
@@ -289,7 +287,7 @@ app.get('/api/ranking', async (req, res) => {
             name: p.name,
             domain: p.domain,
             link: p.link,
-            dailyClicks: p.dailyClicks || 1000
+            dailyClicks: p.dailyClicks || 5000
         }));
         res.json({ success: true, data: ranking });
     } catch (error) {
@@ -371,45 +369,6 @@ app.post('/api/leads', async (req, res) => {
     }
 });
 
-// ========== ROTA DE SEED MANUAL (APENAS PARA PRIMEIRA INSTALAÇÃO) ==========
-app.post('/api/seed', authenticate, async (req, res) => {
-    try {
-        await connectDB();
-        
-        const platformCount = await Platform.countDocuments();
-        if (platformCount > 0) {
-            return res.json({ success: false, message: 'Banco já possui dados. Seed não executado.' });
-        }
-        
-        const randomDailyClicks = () => Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
-        
-        await Platform.insertMany([
-            { name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523, dailyClicks: randomDailyClicks() },
-            { name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892, dailyClicks: randomDailyClicks() },
-            { name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234, dailyClicks: randomDailyClicks() },
-            { name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100, dailyClicks: randomDailyClicks() },
-            { name: "BB22", domain: "BB22.COM", type: "pagando", badge: "💵 PAGANDO AGORA", hot: true, link: "https://bb22.com", clicks: 3456, dailyClicks: randomDailyClicks() },
-            { name: "68D", domain: "68D.COM", type: "pagando", badge: "💸 PAGAMENTO RÁPIDO", hot: true, link: "https://68d.com", clicks: 567, dailyClicks: randomDailyClicks() }
-        ]);
-        
-        await Testimonial.insertMany([
-            { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos!", rating: 5, active: true },
-            { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As plataformas são confiáveis.", rating: 5, active: true },
-            { name: "Rafael Oliveira", text: "Já testei várias plataformas e as que estão aqui realmente funcionam!", rating: 4, active: true }
-        ]);
-        
-        await Activity.insertMany([
-            { type: "saque", user: "João S.", platform: "EE44", amount: 350, createdAt: new Date() },
-            { type: "saque", user: "Maria F.", platform: "8EEE", amount: 780, createdAt: new Date(Date.now() - 120000) },
-            { type: "topo_ranking", user: "Rafael L.", platform: "33X", createdAt: new Date(Date.now() - 300000) }
-        ]);
-        
-        res.json({ success: true, message: 'Seed executado com sucesso!' });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
 // ========== ROTAS ADMIN (PROTEGIDAS) ==========
 app.put('/api/settings', authenticate, async (req, res) => {
     try {
@@ -426,7 +385,7 @@ app.put('/api/settings', authenticate, async (req, res) => {
 app.post('/api/platforms', authenticate, async (req, res) => {
     try {
         await connectDB();
-        const dailyClicks = Math.floor(Math.random() * (10000 - 1000 + 1)) + 1000;
+        const dailyClicks = Math.floor(Math.random() * (50000 - 5000 + 1)) + 5000;
         const platform = await Platform.create({ ...req.body, dailyClicks });
         await Activity.create({ type: 'nova_plataforma', user: 'Admin', platform: platform.name });
         res.json({ success: true, data: platform });
@@ -550,6 +509,45 @@ app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
         await connectDB();
         await Lead.findByIdAndDelete(req.params.id);
         res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ROTA DE SEED MANUAL
+app.post('/api/seed', authenticate, async (req, res) => {
+    try {
+        await connectDB();
+        
+        const platformCount = await Platform.countDocuments();
+        if (platformCount > 0) {
+            return res.json({ success: false, message: 'Banco já possui dados. Seed não executado.' });
+        }
+        
+        const randomDailyClicks = () => Math.floor(Math.random() * (50000 - 5000 + 1)) + 5000;
+        
+        await Platform.insertMany([
+            { name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523, dailyClicks: randomDailyClicks() },
+            { name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892, dailyClicks: randomDailyClicks() },
+            { name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234, dailyClicks: randomDailyClicks() },
+            { name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100, dailyClicks: randomDailyClicks() },
+            { name: "BB22", domain: "BB22.COM", type: "pagando", badge: "💵 PAGANDO AGORA", hot: true, link: "https://bb22.com", clicks: 3456, dailyClicks: randomDailyClicks() },
+            { name: "68D", domain: "68D.COM", type: "pagando", badge: "💸 PAGAMENTO RÁPIDO", hot: true, link: "https://68d.com", clicks: 567, dailyClicks: randomDailyClicks() }
+        ]);
+        
+        await Testimonial.insertMany([
+            { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos!", rating: 5, active: true },
+            { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As plataformas são confiáveis.", rating: 5, active: true },
+            { name: "Rafael Oliveira", text: "Já testei várias plataformas e as que estão aqui realmente funcionam!", rating: 4, active: true }
+        ]);
+        
+        await Activity.insertMany([
+            { type: "saque", user: "João S.", platform: "EE44", amount: 350, createdAt: new Date() },
+            { type: "saque", user: "Maria F.", platform: "8EEE", amount: 780, createdAt: new Date(Date.now() - 120000) },
+            { type: "topo_ranking", user: "Rafael L.", platform: "33X", createdAt: new Date(Date.now() - 300000) }
+        ]);
+        
+        res.json({ success: true, message: 'Seed executado com sucesso!' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
