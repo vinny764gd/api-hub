@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 
@@ -32,20 +33,42 @@ const platformSchema = new mongoose.Schema({
     updatedAt: { type: Date, default: Date.now }
 });
 
-const testimonialSchema = new mongoose.Schema({
+// Modelo de Usuário
+const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
+    email: { type: String, required: true, unique: true, lowercase: true },
+    password: { type: String, required: true },
+    role: { type: String, enum: ['user', 'admin'], default: 'user' },
+    banned: { type: Boolean, default: false },
+    avatar: { type: String, default: null },
+    createdAt: { type: Date, default: Date.now },
+    lastLogin: { type: Date, default: Date.now }
+});
+
+// Modelo de Depoimento
+const testimonialSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    userName: { type: String, required: true },
+    platformName: { type: String, required: true },
+    platformId: { type: mongoose.Schema.Types.ObjectId, ref: 'Platform' },
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    title: { type: String, required: true },
     text: { type: String, required: true },
-    rating: { type: Number, default: 5, min: 1, max: 5 },
-    active: { type: Boolean, default: true },
-    order: { type: Number, default: 0 },
-    createdAt: { type: Date, default: Date.now }
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    helpful: { type: Number, default: 0 },
+    notHelpful: { type: Number, default: 0 },
+    reported: { type: Boolean, default: false },
+    reportReason: { type: String, default: null },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
 });
 
 const activitySchema = new mongoose.Schema({
-    type: { type: String, enum: ['saque', 'nova_plataforma', 'topo_ranking', 'cadastro'], required: true },
+    type: { type: String, enum: ['saque', 'nova_plataforma', 'topo_ranking', 'cadastro', 'novo_depoimento', 'banimento'], required: true },
     user: { type: String, required: true },
     platform: { type: String, default: null },
     amount: { type: Number, default: null },
+    details: { type: String, default: null },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -62,6 +85,7 @@ const settingSchema = new mongoose.Schema({
 });
 
 const Platform = mongoose.models.Platform || mongoose.model('Platform', platformSchema);
+const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Testimonial = mongoose.models.Testimonial || mongoose.model('Testimonial', testimonialSchema);
 const Activity = mongoose.models.Activity || mongoose.model('Activity', activitySchema);
 const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
@@ -80,18 +104,32 @@ async function connectDB() {
         isConnected = true;
         console.log('✅ MongoDB Atlas Conectado');
         await ensureSettingsExist();
+        await createAdminUser();
     } catch (error) {
         console.error('❌ Erro ao conectar MongoDB:', error.message);
     }
 }
 
-// Criar apenas configurações que NÃO EXISTEM
+async function createAdminUser() {
+    const adminExists = await User.findOne({ role: 'admin' });
+    if (!adminExists) {
+        const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
+        await User.create({
+            name: 'Administrador',
+            email: ADMIN_USERNAME,
+            password: hashedPassword,
+            role: 'admin'
+        });
+        console.log('✅ Usuário admin criado');
+    }
+}
+
 async function ensureSettingsExist() {
     const defaults = [
         { key: 'site_title', value: 'Hub Premium' },
         { key: 'site_subtitle', value: 'Descubra plataformas que estão pagando agora' },
         { key: 'site_logo_text', value: 'HubPremium' },
-        { key: 'site_footer_text', value: 'O maior hub de plataformas que pagam do Brasil.' },
+        key: 'site_footer_text', value: 'O maior hub de plataformas que pagam do Brasil.' },
         { key: 'hero_title', value: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>' },
         { key: 'hero_subtitle', value: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!' },
         { key: 'hero_badge_text', value: '+100 Plataformas Verificadas' },
@@ -124,117 +162,143 @@ async function ensureSettingsExist() {
     console.log('✅ Verificação de configurações concluída');
 }
 
-// Função para resetar acessos diários
-async function resetDailyClicks() {
-    try {
-        const platforms = await Platform.find();
-        for (const platform of platforms) {
-            const newDailyClicks = Math.floor(Math.random() * (50000 - 5000 + 1)) + 5000;
-            platform.dailyClicks = newDailyClicks;
-            platform.lastDailyReset = new Date();
-            await platform.save();
-        }
-        console.log(`✅ Acessos diários resetados para ${platforms.length} plataformas`);
-    } catch (error) {
-        console.error('❌ Erro ao resetar acessos diários:', error);
-    }
+// ========== FUNÇÕES DE AUTENTICAÇÃO ==========
+function generateToken(userId, email, role) {
+    return jwt.sign({ userId, email, role }, JWT_SECRET, { expiresIn: '7d' });
 }
 
-// Agendar reset diário (à meia-noite)
-function scheduleDailyReset() {
-    const now = new Date();
-    const night = new Date(now);
-    night.setHours(24, 0, 0, 0);
-    const msUntilMidnight = night.getTime() - now.getTime();
-    
-    setTimeout(() => {
-        resetDailyClicks();
-        setInterval(resetDailyClicks, 24 * 60 * 60 * 1000);
-    }, msUntilMidnight);
-    
-    console.log(`⏰ Reset diário agendado para ${night.toLocaleString()}`);
-}
-
-function generateToken(username) {
-    return jwt.sign({ username, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
-}
-
-function authenticate(req, res, next) {
+async function authenticateUser(req, res, next) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ success: false, message: 'Acesso não autorizado' });
     }
     try {
-        jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = await User.findById(decoded.userId);
+        if (!user || user.banned) {
+            return res.status(401).json({ success: false, message: 'Usuário não encontrado ou banido' });
+        }
+        req.user = user;
         next();
     } catch {
         return res.status(401).json({ success: false, message: 'Token inválido' });
     }
 }
 
-function getTimeAgo(date) {
-    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-    if (seconds < 60) return 'agora mesmo';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `há ${minutes} min`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `há ${hours} h`;
-    return `há ${Math.floor(hours / 24)} d`;
+async function authenticateAdmin(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ success: false, message: 'Acesso não autorizado' });
+    }
+    try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = await User.findById(decoded.userId);
+        if (!user || user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Acesso negado. Área administrativa.' });
+        }
+        req.user = user;
+        next();
+    } catch {
+        return res.status(401).json({ success: false, message: 'Token inválido' });
+    }
 }
 
 // ========== ROTAS PÚBLICAS ==========
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
-app.post('/api/login', async (req, res) => {
-    const { username, password } = req.body;
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-        res.json({ success: true, token: generateToken(username) });
-    } else {
-        res.status(401).json({ success: false, message: 'Credenciais inválidas' });
-    }
-});
-
-app.get('/api/settings', async (req, res) => {
+// Registro de usuário
+app.post('/api/register', async (req, res) => {
     try {
         await connectDB();
-        const settings = await Setting.find();
-        const obj = {};
-        settings.forEach(s => obj[s.key] = s.value);
+        const { name, email, password } = req.body;
         
-        const defaultSettings = {
-            site_title: 'Hub Premium',
-            site_subtitle: 'Descubra plataformas que estão pagando agora',
-            site_logo_text: 'HubPremium',
-            site_footer_text: 'O maior hub de plataformas que pagam do Brasil.',
-            hero_title: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>',
-            hero_subtitle: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!',
-            hero_badge_text: '+100 Plataformas Verificadas',
-            stats_total_users: 50234,
-            stats_total_payments: 1250000,
-            stats_daily_updates: 12,
-            stats_payment_label: 'em pagamentos',
-            stats_users_label: 'usuários ativos',
-            stats_updates_label: 'atualizações hoje',
-            contact_email: 'contato@hubpremium.com',
-            contact_phone: '(11) 99999-9999',
-            contact_whatsapp: '5511999999999',
-            social_instagram: '#',
-            social_telegram: '#',
-            social_youtube: '#',
-            social_tiktok: '#',
-            whatsapp_group_link: 'https://chat.whatsapp.com/SEU_LINK',
-            whatsapp_group_text: 'Grupo VIP',
-            countdown_hours: 24,
-            footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
-        };
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ success: false, message: 'E-mail já cadastrado' });
+        }
         
-        const finalSettings = { ...defaultSettings, ...obj };
-        res.json({ success: true, data: finalSettings });
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = await User.create({
+            name,
+            email: email.toLowerCase(),
+            password: hashedPassword
+        });
+        
+        const token = generateToken(user._id, user.email, user.role);
+        
+        await Activity.create({
+            type: 'cadastro',
+            user: user.name,
+            details: `Novo usuário cadastrado: ${user.email}`
+        });
+        
+        res.json({
+            success: true,
+            token,
+            user: { id: user._id, name: user.name, email: user.email, role: user.role }
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
+// Login de usuário
+app.post('/api/login', async (req, res) => {
+    try {
+        await connectDB();
+        const { email, password } = req.body;
+        
+        const user = await User.findOne({ email: email.toLowerCase() });
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Credenciais inválidas' });
+        }
+        
+        if (user.banned) {
+            return res.status(401).json({ success: false, message: 'Usuário banido. Contate o administrador.' });
+        }
+        
+        const validPassword = await bcrypt.compare(password, user.password);
+        if (!validPassword) {
+            return res.status(401).json({ success: false, message: 'Credenciais inválidas' });
+        }
+        
+        user.lastLogin = new Date();
+        await user.save();
+        
+        const token = generateToken(user._id, user.email, user.role);
+        
+        res.json({
+            success: true,
+            token,
+            user: { id: user._id, name: user.name, email: user.email, role: user.role }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Verificar token (manter sessão)
+app.get('/api/verify', authenticateUser, async (req, res) => {
+    res.json({
+        success: true,
+        user: { id: req.user._id, name: req.user.name, email: req.user.email, role: req.user.role }
+    });
+});
+
+// Listar depoimentos aprovados para o site
+app.get('/api/testimonials', async (req, res) => {
+    try {
+        await connectDB();
+        const testimonials = await Testimonial.find({ status: 'approved' }).sort({ helpful: -1, createdAt: -1 }).limit(20);
+        res.json({ success: true, data: testimonials });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Listar plataformas
 app.get('/api/platforms', async (req, res) => {
     try {
         await connectDB();
@@ -293,16 +357,6 @@ app.get('/api/ranking', async (req, res) => {
     }
 });
 
-app.get('/api/testimonials', async (req, res) => {
-    try {
-        await connectDB();
-        const testimonials = await Testimonial.find({ active: true }).sort({ order: 1, createdAt: -1 });
-        res.json({ success: true, data: testimonials });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-
 app.get('/api/activity', async (req, res) => {
     try {
         await connectDB();
@@ -313,6 +367,7 @@ app.get('/api/activity', async (req, res) => {
             message: a.type === 'saque' ? `${a.user} sacou R$ ${a.amount},00 da plataforma ${a.platform}` :
                      a.type === 'nova_plataforma' ? `Nova plataforma adicionada: ${a.platform}` :
                      a.type === 'topo_ranking' ? `${a.user} atingiu o topo do ranking` :
+                     a.type === 'novo_depoimento' ? `Novo depoimento de ${a.user} sobre ${a.platform}` :
                      `${a.user} se cadastrou no Hub Premium`
         }));
         res.json({ success: true, data: formatted });
@@ -324,14 +379,16 @@ app.get('/api/activity', async (req, res) => {
 app.get('/api/stats', async (req, res) => {
     try {
         await connectDB();
-        const [total, pagando, lancamento, destaque, hot, settings, totalClicksResult] = await Promise.all([
+        const [total, pagando, lancamento, destaque, hot, settings, totalClicksResult, totalUsers, totalTestimonials] = await Promise.all([
             Platform.countDocuments(),
             Platform.countDocuments({ type: 'pagando' }),
             Platform.countDocuments({ type: 'lancamento' }),
             Platform.countDocuments({ type: 'destaque' }),
             Platform.countDocuments({ hot: true }),
             Setting.find(),
-            Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }])
+            Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }]),
+            User.countDocuments(),
+            Testimonial.countDocuments()
         ]);
         
         const totalClicks = totalClicksResult[0]?.total || 0;
@@ -345,9 +402,10 @@ app.get('/api/stats', async (req, res) => {
                 estimatedPayments: totalClicks * 50,
                 updatedToday: await Platform.countDocuments({ updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
                 newToday: await Platform.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
-                stats_total_users: settingsObj.stats_total_users || 50234,
+                stats_total_users: totalUsers || settingsObj.stats_total_users || 50234,
                 stats_total_payments: settingsObj.stats_total_payments || 1250000,
-                stats_daily_updates: settingsObj.stats_daily_updates || 12
+                stats_daily_updates: settingsObj.stats_daily_updates || 12,
+                totalTestimonials
             }
         });
     } catch (error) {
@@ -367,8 +425,155 @@ app.post('/api/leads', async (req, res) => {
     }
 });
 
+app.get('/api/settings', async (req, res) => {
+    try {
+        await connectDB();
+        const settings = await Setting.find();
+        const obj = {};
+        settings.forEach(s => obj[s.key] = s.value);
+        
+        const defaultSettings = {
+            site_title: 'Hub Premium',
+            site_subtitle: 'Descubra plataformas que estão pagando agora',
+            site_logo_text: 'HubPremium',
+            site_footer_text: 'O maior hub de plataformas que pagam do Brasil.',
+            hero_title: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>',
+            hero_subtitle: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!',
+            hero_badge_text: '+100 Plataformas Verificadas',
+            stats_total_users: 50234,
+            stats_total_payments: 1250000,
+            stats_daily_updates: 12,
+            stats_payment_label: 'em pagamentos',
+            stats_users_label: 'usuários ativos',
+            stats_updates_label: 'atualizações hoje',
+            contact_email: 'contato@hubpremium.com',
+            contact_phone: '(11) 99999-9999',
+            contact_whatsapp: '5511999999999',
+            social_instagram: '#',
+            social_telegram: '#',
+            social_youtube: '#',
+            social_tiktok: '#',
+            whatsapp_group_link: 'https://chat.whatsapp.com/SEU_LINK',
+            whatsapp_group_text: 'Grupo VIP',
+            countdown_hours: 24,
+            footer_disclaimer: 'Não somos afiliados às plataformas. Apenas fornecemos informações.'
+        };
+        
+        const finalSettings = { ...defaultSettings, ...obj };
+        res.json({ success: true, data: finalSettings });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ========== ROTAS DE USUÁRIO AUTENTICADO ==========
+
+// Obter perfil do usuário
+app.get('/api/user/profile', authenticateUser, async (req, res) => {
+    res.json({ success: true, user: req.user });
+});
+
+// Atualizar perfil
+app.put('/api/user/profile', authenticateUser, async (req, res) => {
+    try {
+        const { name, avatar } = req.body;
+        if (name) req.user.name = name;
+        if (avatar) req.user.avatar = avatar;
+        await req.user.save();
+        res.json({ success: true, user: req.user });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Criar depoimento
+app.post('/api/testimonials', authenticateUser, async (req, res) => {
+    try {
+        await connectDB();
+        const { platformName, platformId, rating, title, text } = req.body;
+        
+        if (req.user.banned) {
+            return res.status(403).json({ success: false, message: 'Usuário banido não pode postar depoimentos' });
+        }
+        
+        const testimonial = await Testimonial.create({
+            userId: req.user._id,
+            userName: req.user.name,
+            platformName,
+            platformId: platformId || null,
+            rating,
+            title,
+            text,
+            status: 'pending'
+        });
+        
+        await Activity.create({
+            type: 'novo_depoimento',
+            user: req.user.name,
+            platform: platformName,
+            details: `Novo depoimento aguardando aprovação`
+        });
+        
+        res.json({ success: true, data: testimonial });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Listar meus depoimentos
+app.get('/api/user/testimonials', authenticateUser, async (req, res) => {
+    try {
+        const testimonials = await Testimonial.find({ userId: req.user._id }).sort({ createdAt: -1 });
+        res.json({ success: true, data: testimonials });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Avaliar se um depoimento foi útil
+app.post('/api/testimonials/:id/helpful', authenticateUser, async (req, res) => {
+    try {
+        const testimonial = await Testimonial.findById(req.params.id);
+        if (!testimonial) {
+            return res.status(404).json({ success: false, message: 'Depoimento não encontrado' });
+        }
+        testimonial.helpful = (testimonial.helpful || 0) + 1;
+        await testimonial.save();
+        res.json({ success: true, helpful: testimonial.helpful });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Reportar depoimento
+app.post('/api/testimonials/:id/report', authenticateUser, async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const testimonial = await Testimonial.findById(req.params.id);
+        if (!testimonial) {
+            return res.status(404).json({ success: false, message: 'Depoimento não encontrado' });
+        }
+        testimonial.reported = true;
+        testimonial.reportReason = reason;
+        await testimonial.save();
+        
+        await Activity.create({
+            type: 'reporte',
+            user: req.user.name,
+            platform: testimonial.platformName,
+            details: `Depoimento reportado: ${reason}`
+        });
+        
+        res.json({ success: true, message: 'Depoimento reportado com sucesso' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // ========== ROTAS ADMIN (PROTEGIDAS) ==========
-app.put('/api/settings', authenticate, async (req, res) => {
+
+// Configurações
+app.put('/api/settings', authenticateAdmin, async (req, res) => {
     try {
         await connectDB();
         for (const [key, value] of Object.entries(req.body)) {
@@ -380,7 +585,8 @@ app.put('/api/settings', authenticate, async (req, res) => {
     }
 });
 
-app.post('/api/platforms', authenticate, async (req, res) => {
+// CRUD Plataformas
+app.post('/api/platforms', authenticateAdmin, async (req, res) => {
     try {
         await connectDB();
         const dailyClicks = Math.floor(Math.random() * (50000 - 5000 + 1)) + 5000;
@@ -392,7 +598,7 @@ app.post('/api/platforms', authenticate, async (req, res) => {
     }
 });
 
-app.put('/api/platforms/:id', authenticate, async (req, res) => {
+app.put('/api/platforms/:id', authenticateAdmin, async (req, res) => {
     try {
         await connectDB();
         const platform = await Platform.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -402,7 +608,7 @@ app.put('/api/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/platforms/:id', authenticate, async (req, res) => {
+app.delete('/api/platforms/:id', authenticateAdmin, async (req, res) => {
     try {
         await connectDB();
         await Platform.findByIdAndDelete(req.params.id);
@@ -412,7 +618,8 @@ app.delete('/api/platforms/:id', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/admin/testimonials', authenticate, async (req, res) => {
+// CRUD Depoimentos (Admin)
+app.get('/api/admin/testimonials', authenticateAdmin, async (req, res) => {
     try {
         await connectDB();
         const testimonials = await Testimonial.find().sort({ createdAt: -1 });
@@ -422,29 +629,22 @@ app.get('/api/admin/testimonials', authenticate, async (req, res) => {
     }
 });
 
-app.post('/api/admin/testimonials', authenticate, async (req, res) => {
+app.put('/api/admin/testimonials/:id/status', authenticateAdmin, async (req, res) => {
     try {
-        await connectDB();
-        const testimonial = await Testimonial.create(req.body);
+        const { status } = req.body;
+        const testimonial = await Testimonial.findByIdAndUpdate(
+            req.params.id,
+            { status, updatedAt: new Date() },
+            { new: true }
+        );
         res.json({ success: true, data: testimonial });
     } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
-app.put('/api/admin/testimonials/:id', authenticate, async (req, res) => {
+app.delete('/api/admin/testimonials/:id', authenticateAdmin, async (req, res) => {
     try {
-        await connectDB();
-        const testimonial = await Testimonial.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        res.json({ success: true, data: testimonial });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-});
-
-app.delete('/api/admin/testimonials/:id', authenticate, async (req, res) => {
-    try {
-        await connectDB();
         await Testimonial.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (error) {
@@ -452,19 +652,74 @@ app.delete('/api/admin/testimonials/:id', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/admin/activities', authenticate, async (req, res) => {
+// CRUD Usuários (Admin)
+app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
     try {
         await connectDB();
-        const activities = await Activity.find().sort({ createdAt: -1 });
+        const users = await User.find().select('-password').sort({ createdAt: -1 });
+        res.json({ success: true, data: users });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.put('/api/admin/users/:id/ban', authenticateAdmin, async (req, res) => {
+    try {
+        const { banned } = req.body;
+        const user = await User.findByIdAndUpdate(
+            req.params.id,
+            { banned },
+            { new: true }
+        ).select('-password');
+        
+        await Activity.create({
+            type: 'banimento',
+            user: user.name,
+            details: `Usuário ${banned ? 'banido' : 'desbanido'} pelo administrador`
+        });
+        
+        res.json({ success: true, data: user });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.put('/api/admin/users/:id/role', authenticateAdmin, async (req, res) => {
+    try {
+        const { role } = req.body;
+        const user = await User.findByIdAndUpdate(
+            req.params.id,
+            { role },
+            { new: true }
+        ).select('-password');
+        res.json({ success: true, data: user });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.delete('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await User.findByIdAndDelete(req.params.id);
+        await Testimonial.deleteMany({ userId: req.params.id });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Atividades (Admin)
+app.get('/api/admin/activities', authenticateAdmin, async (req, res) => {
+    try {
+        const activities = await Activity.find().sort({ createdAt: -1 }).limit(50);
         res.json({ success: true, data: activities });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-app.post('/api/admin/activities', authenticate, async (req, res) => {
+app.post('/api/admin/activities', authenticateAdmin, async (req, res) => {
     try {
-        await connectDB();
         const activity = await Activity.create(req.body);
         res.json({ success: true, data: activity });
     } catch (error) {
@@ -472,19 +727,8 @@ app.post('/api/admin/activities', authenticate, async (req, res) => {
     }
 });
 
-app.put('/api/admin/activities/:id', authenticate, async (req, res) => {
+app.delete('/api/admin/activities/:id', authenticateAdmin, async (req, res) => {
     try {
-        await connectDB();
-        const activity = await Activity.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        res.json({ success: true, data: activity });
-    } catch (error) {
-        res.status(400).json({ success: false, message: error.message });
-    }
-});
-
-app.delete('/api/admin/activities/:id', authenticate, async (req, res) => {
-    try {
-        await connectDB();
         await Activity.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (error) {
@@ -492,9 +736,9 @@ app.delete('/api/admin/activities/:id', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/admin/leads', authenticate, async (req, res) => {
+// Leads (Admin)
+app.get('/api/admin/leads', authenticateAdmin, async (req, res) => {
     try {
-        await connectDB();
         const leads = await Lead.find().sort({ createdAt: -1 });
         res.json({ success: true, data: leads });
     } catch (error) {
@@ -502,9 +746,8 @@ app.get('/api/admin/leads', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
+app.delete('/api/admin/leads/:id', authenticateAdmin, async (req, res) => {
     try {
-        await connectDB();
         await Lead.findByIdAndDelete(req.params.id);
         res.json({ success: true });
     } catch (error) {
@@ -512,55 +755,35 @@ app.delete('/api/admin/leads/:id', authenticate, async (req, res) => {
     }
 });
 
-// ROTA DE SEED MANUAL
-app.post('/api/seed', authenticate, async (req, res) => {
+// Estatísticas admin
+app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     try {
-        await connectDB();
-        
-        const platformCount = await Platform.countDocuments();
-        if (platformCount > 0) {
-            return res.json({ success: false, message: 'Banco já possui dados. Seed não executado.' });
-        }
-        
-        const randomDailyClicks = () => Math.floor(Math.random() * (50000 - 5000 + 1)) + 5000;
-        
-        await Platform.insertMany([
-            { name: "EE44", domain: "EE44.COM", type: "pagando", badge: "💰 PAGANDO AGORA", hot: true, link: "https://ee44.com", clicks: 1523, dailyClicks: randomDailyClicks() },
-            { name: "8EEE", domain: "8EEE.COM", type: "pagando", badge: "💵 PAGANDO INSTANTÂNEO", hot: true, link: "https://8eee.com", clicks: 892, dailyClicks: randomDailyClicks() },
-            { name: "84D", domain: "84D.COM", type: "lancamento", badge: "🚀 NOVO LANÇAMENTO", hot: false, link: "https://84d.com", clicks: 234, dailyClicks: randomDailyClicks() },
-            { name: "33X", domain: "33X.COM", type: "destaque", badge: "🏆 TOP PERFORMANCE", hot: true, link: "https://33x.com", clicks: 2100, dailyClicks: randomDailyClicks() },
-            { name: "BB22", domain: "BB22.COM", type: "pagando", badge: "💵 PAGANDO AGORA", hot: true, link: "https://bb22.com", clicks: 3456, dailyClicks: randomDailyClicks() },
-            { name: "68D", domain: "68D.COM", type: "pagando", badge: "💸 PAGAMENTO RÁPIDO", hot: true, link: "https://68d.com", clicks: 567, dailyClicks: randomDailyClicks() }
+        const [totalUsers, totalTestimonials, pendingTestimonials, totalPlatforms, totalLeads] = await Promise.all([
+            User.countDocuments(),
+            Testimonial.countDocuments(),
+            Testimonial.countDocuments({ status: 'pending' }),
+            Platform.countDocuments(),
+            Lead.countDocuments()
         ]);
         
-        await Testimonial.insertMany([
-            { name: "Carlos Mendes", text: "Conheci o Hub Premium há 2 meses e já consegui mais de R$ 2.000 em pagamentos!", rating: 5, active: true },
-            { name: "Ana Paula Silva", text: "Indico para todos que buscam uma renda extra. As plataformas são confiáveis.", rating: 5, active: true },
-            { name: "Rafael Oliveira", text: "Já testei várias plataformas e as que estão aqui realmente funcionam!", rating: 4, active: true }
-        ]);
-        
-        await Activity.insertMany([
-            { type: "saque", user: "João S.", platform: "EE44", amount: 350, createdAt: new Date() },
-            { type: "saque", user: "Maria F.", platform: "8EEE", amount: 780, createdAt: new Date(Date.now() - 120000) },
-            { type: "topo_ranking", user: "Rafael L.", platform: "33X", createdAt: new Date(Date.now() - 300000) }
-        ]);
-        
-        res.json({ success: true, message: 'Seed executado com sucesso!' });
+        res.json({
+            success: true,
+            data: { totalUsers, totalTestimonials, pendingTestimonials, totalPlatforms, totalLeads }
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// Iniciar reset diário após conectar
-setTimeout(() => {
-    if (isConnected) {
-        scheduleDailyReset();
-    }
-}, 5000);
-
-app.use('*', (req, res) => {
-    res.status(404).json({ success: false, message: 'Rota não encontrada' });
-});
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    if (seconds < 60) return 'agora mesmo';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `há ${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `há ${hours} h`;
+    return `há ${Math.floor(hours / 24)} d`;
+}
 
 connectDB();
 module.exports = app;
