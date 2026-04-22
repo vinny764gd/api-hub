@@ -33,7 +33,6 @@ const platformSchema = new mongoose.Schema({
     updatedAt: { type: Date, default: Date.now }
 });
 
-// Modelo de Usuário
 const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, lowercase: true },
@@ -45,7 +44,6 @@ const userSchema = new mongoose.Schema({
     lastLogin: { type: Date, default: Date.now }
 });
 
-// Modelo de Depoimento
 const testimonialSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     userName: { type: String, required: true },
@@ -129,7 +127,7 @@ async function ensureSettingsExist() {
         { key: 'site_title', value: 'Hub Premium' },
         { key: 'site_subtitle', value: 'Descubra plataformas que estão pagando agora' },
         { key: 'site_logo_text', value: 'HubPremium' },
-        key: 'site_footer_text', value: 'O maior hub de plataformas que pagam do Brasil.' },
+        { key: 'site_footer_text', value: 'O maior hub de plataformas que pagam do Brasil.' },
         { key: 'hero_title', value: 'Descubra plataformas que <span class="highlight">estão pagando agora</span>' },
         { key: 'hero_subtitle', value: 'Atualizado diariamente com as melhores oportunidades de ganhar dinheiro online. Mais de <strong>50.000 usuários</strong> já estão lucrando!' },
         { key: 'hero_badge_text', value: '+100 Plataformas Verificadas' },
@@ -205,6 +203,16 @@ async function authenticateAdmin(req, res, next) {
     }
 }
 
+function getTimeAgo(date) {
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    if (seconds < 60) return 'agora mesmo';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `há ${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `há ${hours} h`;
+    return `há ${Math.floor(hours / 24)} d`;
+}
+
 // ========== ROTAS PÚBLICAS ==========
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
@@ -214,7 +222,7 @@ app.post('/api/register', async (req, res) => {
         await connectDB();
         const { name, email, password } = req.body;
         
-        const existingUser = await User.findOne({ email });
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
             return res.status(400).json({ success: false, message: 'E-mail já cadastrado' });
         }
@@ -279,7 +287,7 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Verificar token (manter sessão)
+// Verificar token
 app.get('/api/verify', authenticateUser, async (req, res) => {
     res.json({
         success: true,
@@ -287,7 +295,7 @@ app.get('/api/verify', authenticateUser, async (req, res) => {
     });
 });
 
-// Listar depoimentos aprovados para o site
+// Listar depoimentos aprovados
 app.get('/api/testimonials', async (req, res) => {
     try {
         await connectDB();
@@ -324,6 +332,7 @@ app.get('/api/platforms', async (req, res) => {
     }
 });
 
+// Registrar clique
 app.post('/api/platforms/:id/click', async (req, res) => {
     try {
         await connectDB();
@@ -339,6 +348,7 @@ app.post('/api/platforms/:id/click', async (req, res) => {
     }
 });
 
+// Ranking
 app.get('/api/ranking', async (req, res) => {
     try {
         await connectDB();
@@ -357,6 +367,7 @@ app.get('/api/ranking', async (req, res) => {
     }
 });
 
+// Atividades
 app.get('/api/activity', async (req, res) => {
     try {
         await connectDB();
@@ -376,6 +387,7 @@ app.get('/api/activity', async (req, res) => {
     }
 });
 
+// Estatísticas
 app.get('/api/stats', async (req, res) => {
     try {
         await connectDB();
@@ -388,7 +400,7 @@ app.get('/api/stats', async (req, res) => {
             Setting.find(),
             Platform.aggregate([{ $group: { _id: null, total: { $sum: '$clicks' } } }]),
             User.countDocuments(),
-            Testimonial.countDocuments()
+            Testimonial.countDocuments({ status: 'approved' })
         ]);
         
         const totalClicks = totalClicksResult[0]?.total || 0;
@@ -413,6 +425,7 @@ app.get('/api/stats', async (req, res) => {
     }
 });
 
+// Leads (WhatsApp)
 app.post('/api/leads', async (req, res) => {
     try {
         await connectDB();
@@ -425,6 +438,7 @@ app.post('/api/leads', async (req, res) => {
     }
 });
 
+// Configurações do site
 app.get('/api/settings', async (req, res) => {
     try {
         await connectDB();
@@ -468,7 +482,7 @@ app.get('/api/settings', async (req, res) => {
 
 // ========== ROTAS DE USUÁRIO AUTENTICADO ==========
 
-// Obter perfil do usuário
+// Perfil do usuário
 app.get('/api/user/profile', authenticateUser, async (req, res) => {
     res.json({ success: true, user: req.user });
 });
@@ -530,7 +544,7 @@ app.get('/api/user/testimonials', authenticateUser, async (req, res) => {
     }
 });
 
-// Avaliar se um depoimento foi útil
+// Avaliar depoimento como útil
 app.post('/api/testimonials/:id/helpful', authenticateUser, async (req, res) => {
     try {
         const testimonial = await Testimonial.findById(req.params.id);
@@ -618,7 +632,7 @@ app.delete('/api/platforms/:id', authenticateAdmin, async (req, res) => {
     }
 });
 
-// CRUD Depoimentos (Admin)
+// Depoimentos (Admin)
 app.get('/api/admin/testimonials', authenticateAdmin, async (req, res) => {
     try {
         await connectDB();
@@ -652,7 +666,7 @@ app.delete('/api/admin/testimonials/:id', authenticateAdmin, async (req, res) =>
     }
 });
 
-// CRUD Usuários (Admin)
+// Usuários (Admin)
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
     try {
         await connectDB();
@@ -758,32 +772,65 @@ app.delete('/api/admin/leads/:id', authenticateAdmin, async (req, res) => {
 // Estatísticas admin
 app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     try {
-        const [totalUsers, totalTestimonials, pendingTestimonials, totalPlatforms, totalLeads] = await Promise.all([
+        const [totalUsers, totalTestimonials, pendingTestimonials, totalPlatforms, totalLeads, totalActivities] = await Promise.all([
             User.countDocuments(),
             Testimonial.countDocuments(),
             Testimonial.countDocuments({ status: 'pending' }),
             Platform.countDocuments(),
-            Lead.countDocuments()
+            Lead.countDocuments(),
+            Activity.countDocuments()
         ]);
         
         res.json({
             success: true,
-            data: { totalUsers, totalTestimonials, pendingTestimonials, totalPlatforms, totalLeads }
+            data: { totalUsers, totalTestimonials, pendingTestimonials, totalPlatforms, totalLeads, totalActivities }
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-function getTimeAgo(date) {
-    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-    if (seconds < 60) return 'agora mesmo';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `há ${minutes} min`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `há ${hours} h`;
-    return `há ${Math.floor(hours / 24)} d`;
+// Função para resetar acessos diários
+async function resetDailyClicks() {
+    try {
+        const platforms = await Platform.find();
+        for (const platform of platforms) {
+            const newDailyClicks = Math.floor(Math.random() * (50000 - 5000 + 1)) + 5000;
+            platform.dailyClicks = newDailyClicks;
+            platform.lastDailyReset = new Date();
+            await platform.save();
+        }
+        console.log(`✅ Acessos diários resetados para ${platforms.length} plataformas`);
+    } catch (error) {
+        console.error('❌ Erro ao resetar acessos diários:', error);
+    }
 }
+
+// Agendar reset diário
+function scheduleDailyReset() {
+    const now = new Date();
+    const night = new Date(now);
+    night.setHours(24, 0, 0, 0);
+    const msUntilMidnight = night.getTime() - now.getTime();
+    
+    setTimeout(() => {
+        resetDailyClicks();
+        setInterval(resetDailyClicks, 24 * 60 * 60 * 1000);
+    }, msUntilMidnight);
+    
+    console.log(`⏰ Reset diário agendado para ${night.toLocaleString()}`);
+}
+
+// Iniciar reset diário após conectar
+setTimeout(() => {
+    if (isConnected) {
+        scheduleDailyReset();
+    }
+}, 5000);
+
+app.use('*', (req, res) => {
+    res.status(404).json({ success: false, message: 'Rota não encontrada' });
+});
 
 connectDB();
 module.exports = app;
