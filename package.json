@@ -1,21 +1,19 @@
 {
   "name": "hub-plataformas-api",
   "version": "1.0.0",
-  "description": "API para gerenciamento de plataformas com MongoDB Atlas",
+  "description": "API para Hub Premium com sistema de usuários",
   "main": "api/index.js",
   "scripts": {
     "start": "node api/index.js",
-    "dev": "nodemon api/index.js",
-    "vercel-build": "echo Build completed"
+    "dev": "nodemon api/index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "mongoose": "^8.0.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "bcryptjs": "^2.4.3",
+    "mongoose": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
-    "express-validator": "^7.0.1"
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
