@@ -110,18 +110,26 @@ async function connectDB() {
 
 async function createAdminUser() {
     try {
-        // Verificar se já existe admin com o email definido no .env
+        // O admin pode logar com o username (ADMIN_USERNAME) como email
         const adminExists = await User.findOne({ email: ADMIN_USERNAME });
         if (!adminExists) {
             const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
             await User.create({
                 name: 'Administrador',
-                email: ADMIN_USERNAME,
+                email: ADMIN_USERNAME, // Usa o username como email para login
                 password: hashedPassword,
                 role: 'admin'
             });
-            console.log(`✅ Usuário admin criado: ${ADMIN_USERNAME}`);
+            console.log(`✅ Usuário admin criado - Usuário: ${ADMIN_USERNAME} | Senha: ${ADMIN_PASSWORD}`);
         } else {
+            // Se o admin já existe mas a senha mudou no .env, atualiza
+            const isPasswordValid = await bcrypt.compare(ADMIN_PASSWORD, adminExists.password);
+            if (!isPasswordValid) {
+                const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
+                adminExists.password = hashedPassword;
+                await adminExists.save();
+                console.log(`✅ Senha do admin atualizada - Usuário: ${ADMIN_USERNAME}`);
+            }
             console.log(`✅ Usuário admin já existe: ${ADMIN_USERNAME}`);
         }
     } catch (error) {
@@ -260,7 +268,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// LOGIN - Funciona tanto para admin quanto para usuário comum
+// LOGIN - Funciona para admin (com username) e usuário comum (com email)
 app.post('/api/login', async (req, res) => {
     try {
         await connectDB();
@@ -268,7 +276,7 @@ app.post('/api/login', async (req, res) => {
         
         console.log(`🔐 Tentativa de login: ${email}`);
         
-        // Buscar usuário pelo email
+        // Buscar usuário pelo email/username
         const user = await User.findOne({ email: email.toLowerCase() });
         if (!user) {
             console.log(`❌ Usuário não encontrado: ${email}`);
