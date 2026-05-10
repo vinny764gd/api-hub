@@ -109,16 +109,23 @@ async function connectDB() {
 }
 
 async function createAdminUser() {
-    const adminExists = await User.findOne({ role: 'admin' });
-    if (!adminExists) {
-        const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
-        await User.create({
-            name: 'Administrador',
-            email: ADMIN_USERNAME,
-            password: hashedPassword,
-            role: 'admin'
-        });
-        console.log('✅ Usuário admin criado');
+    try {
+        // Verificar se já existe admin com o email definido no .env
+        const adminExists = await User.findOne({ email: ADMIN_USERNAME });
+        if (!adminExists) {
+            const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
+            await User.create({
+                name: 'Administrador',
+                email: ADMIN_USERNAME,
+                password: hashedPassword,
+                role: 'admin'
+            });
+            console.log(`✅ Usuário admin criado: ${ADMIN_USERNAME}`);
+        } else {
+            console.log(`✅ Usuário admin já existe: ${ADMIN_USERNAME}`);
+        }
+    } catch (error) {
+        console.error('❌ Erro ao criar admin:', error.message);
     }
 }
 
@@ -216,7 +223,7 @@ function getTimeAgo(date) {
 // ========== ROTAS PÚBLICAS ==========
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
-// Registro de usuário
+// Registro de usuário comum
 app.post('/api/register', async (req, res) => {
     try {
         await connectDB();
@@ -231,7 +238,8 @@ app.post('/api/register', async (req, res) => {
         const user = await User.create({
             name,
             email: email.toLowerCase(),
-            password: hashedPassword
+            password: hashedPassword,
+            role: 'user'
         });
         
         const token = generateToken(user._id, user.email, user.role);
@@ -252,30 +260,42 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Login de usuário
+// LOGIN - Funciona tanto para admin quanto para usuário comum
 app.post('/api/login', async (req, res) => {
     try {
         await connectDB();
         const { email, password } = req.body;
         
+        console.log(`🔐 Tentativa de login: ${email}`);
+        
+        // Buscar usuário pelo email
         const user = await User.findOne({ email: email.toLowerCase() });
         if (!user) {
+            console.log(`❌ Usuário não encontrado: ${email}`);
             return res.status(401).json({ success: false, message: 'Credenciais inválidas' });
         }
         
+        // Verificar se usuário está banido
         if (user.banned) {
+            console.log(`❌ Usuário banido: ${email}`);
             return res.status(401).json({ success: false, message: 'Usuário banido. Contate o administrador.' });
         }
         
+        // Verificar senha
         const validPassword = await bcrypt.compare(password, user.password);
         if (!validPassword) {
+            console.log(`❌ Senha inválida para: ${email}`);
             return res.status(401).json({ success: false, message: 'Credenciais inválidas' });
         }
         
+        // Atualizar último login
         user.lastLogin = new Date();
         await user.save();
         
+        // Gerar token
         const token = generateToken(user._id, user.email, user.role);
+        
+        console.log(`✅ Login bem-sucedido: ${email} (${user.role})`);
         
         res.json({
             success: true,
@@ -283,11 +303,12 @@ app.post('/api/login', async (req, res) => {
             user: { id: user._id, name: user.name, email: user.email, role: user.role }
         });
     } catch (error) {
+        console.error('❌ Erro no login:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// Verificar token
+// Verificar token (manter sessão)
 app.get('/api/verify', authenticateUser, async (req, res) => {
     res.json({
         success: true,
